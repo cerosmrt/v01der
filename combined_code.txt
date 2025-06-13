@@ -1,0 +1,598 @@
+
+
+# --- build_installer.py ---
+import os
+import datetime
+import PyInstaller.__main__
+
+# Obtener fecha y hora actual con precisión
+timestamp = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
+exe_name = f'voider-{timestamp}'
+build_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'builds')
+icon_path = os.path.join(os.path.dirname(__file__), 'voider.ico')
+
+args = [
+    'voider.py',
+    '--onefile',
+    '--windowed',
+    f'--icon={icon_path}',
+    f'--name={exe_name}',
+    f'--add-data={icon_path};.',
+    '--hidden-import=watchdog',
+    f'--distpath={build_dir}\\dist',
+    f'--workpath={build_dir}\\build',
+    f'--specpath={build_dir}'
+]
+
+print(f"Generating {exe_name}.exe...")
+PyInstaller.__main__.run(args)
+print(f"Done, check {os.path.join(build_dir, 'dist', exe_name)}.exe")
+
+# --- controls.py ---
+# --- controls.py ---
+import random
+import os
+from files import setup_file_handling, void_line
+from tools import clean_text
+from PyQt6.QtWidgets import QApplication
+
+def setup_controls(app):
+    pass  # Los eventos están en keyPressEvent y returnPressed
+
+def show_random_line_from_zero(app, event=None):
+    """Muestra una línea aleatoria de 0.txt y guarda su índice para reemplazo."""
+    try:
+        zero_file_path = app.void_file_path
+        print(f"Intentando leer: {zero_file_path}")
+        if os.path.exists(zero_file_path):
+            with open(zero_file_path, 'r', encoding='utf-8') as f:
+                lines = [line.rstrip('\n') for line in f.readlines() if line.strip()]
+            if lines:
+                app.current_zero_line = random.choice(lines)
+                app.current_zero_line_index = lines.index(app.current_zero_line)
+                app.entry.setText(app.current_zero_line)
+                app.entry.setCursorPosition(0)  # Mover cursor al inicio
+                print(f"Random line from 0.txt: {app.current_zero_line}, Index: {app.current_zero_line_index}")
+            else:
+                print("0.txt está vacío.")
+                app.entry.clear()
+                app.current_zero_line = None
+                app.current_zero_line_index = None
+        else:
+            print("0.txt no existe.")
+            app.entry.clear()
+            app.current_zero_line = None
+            app.current_zero_line_index = None
+    except Exception as e:
+        print(f"Error en show_random_line_from_zero: {e}")
+
+def handle_key_press(app, event=None):
+    """Función original para mezclar archivos (guardada para uso futuro)."""
+    random.shuffle(app.txt_files)
+    if app.txt_files:
+        app.current_file = app.txt_files[0]
+        file_lines = app.file_line_map.get(app.current_file, [])
+        if file_lines:
+            app.current_line_index = random.randint(0, len(file_lines) - 1)
+            app.current_line = file_lines[app.current_line_index]
+            app.entry.setText(app.current_line)
+            for file in app.txt_files:
+                app.file_positions[file] = random.randint(0, len(app.file_line_map.get(file, [])) - 1) if app.file_line_map.get(file) else 0
+            app.navigation_direction = random.choice([1, -1])
+            print("\nShuffled files:", app.txt_files)
+            print("File positions:", app.file_positions)
+            print(f"Showing random line: {app.current_line}, Index: {app.current_line_index}")
+            print(f"Navigation direction: {'normal' if app.navigation_direction == 1 else 'inverted'}")
+
+def show_previous_file(app, event=None):
+    if not app.txt_files:
+        return
+    if app.current_file:
+        app.file_positions[app.current_file] = app.current_line_index
+    current_file_index = app.txt_files.index(app.current_file) if app.current_file else 0
+    previous_file_index = (current_file_index - 1) % len(app.txt_files)
+    app.current_file = app.txt_files[previous_file_index]
+    file_lines = app.file_line_map.get(app.current_file, [])
+    if file_lines:
+        app.current_line_index = app.file_positions.get(app.current_file, 0) % len(file_lines)
+        app.current_line = file_lines[app.current_line_index]
+        app.entry.setText(app.current_line)
+        print(f"Previous File - Now at: {app.current_file}, Index: {app.current_line_index}, Line: {app.current_line}")
+
+def show_next_file(app, event=None):
+    if not app.txt_files:
+        return
+    if not app.entry.text().strip() and app.current_line == "":
+        file_lines = app.file_line_map.get(app.current_file, [])
+        if file_lines:
+            app.current_line_index = app.file_positions.get(app.current_file, 0) % len(file_lines)
+            app.current_line = file_lines[app.current_line_index]
+            app.entry.setText(app.current_line)
+            print(f"Next File - First show: {app.current_file}, Index: {app.current_line_index}, Line: {app.current_line}")
+    else:
+        if app.current_file:
+            app.file_positions[app.current_file] = app.current_line_index
+        current_file_index = app.txt_files.index(app.current_file) if app.current_file else -1
+        next_file_index = (current_file_index + 1) % len(app.txt_files)
+        app.current_file = app.txt_files[next_file_index]
+        file_lines = app.file_line_map.get(app.current_file, [])
+        if file_lines:
+            app.current_line_index = app.file_positions.get(app.current_file, 0) % len(file_lines)
+            app.current_line = file_lines[app.current_line_index]
+            app.entry.setText(app.current_line)
+            print(f"Next File - Now at: {app.current_file}, Index: {app.current_line_index}, Line: {app.current_line}")
+
+def show_previous_line(app, event=None):
+    if not app.current_file or not app.file_line_map.get(app.current_file, []):
+        return
+    file_lines = app.file_line_map[app.current_file]
+    app.current_line_index = (app.current_line_index - 1) % len(file_lines)
+    app.current_line = file_lines[app.current_line_index]
+    app.entry.setText(app.current_line)
+    app.file_positions[app.current_file] = app.current_line_index
+    print(f"Previous Line - File: {app.current_file}, Index: {app.current_line_index}, Line: {app.current_line}")
+
+def show_next_line(app, event=None):
+    if not app.current_file or not app.file_line_map.get(app.current_file, []):
+        return
+    file_lines = app.file_line_map[app.current_file]
+    app.current_line_index = (app.current_line_index + 1) % len(file_lines)
+    app.current_line = file_lines[app.current_line_index]
+    app.entry.setText(app.current_line)
+    app.file_positions[app.current_file] = app.current_line_index
+    print(f"Next Line - File: {app.current_file}, Index: {app.current_line_index}, Line: {app.current_line}")
+
+# --- files.py ---
+# --- files.py ---
+import os
+import random
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+def setup_file_handling(app):
+    app.txt_files = []
+    update_txt_files(app)
+    index_all_lines(app)
+    if app.txt_files:
+        app.current_file = app.txt_files[0]
+        app.current_line_index = 0
+        app.current_line = ""
+        app.entry.clear()
+    
+    app.event_handler = FileSystemEventHandler()
+    app.event_handler.on_created = lambda event: on_directory_change(app, event)
+    app.event_handler.on_deleted = lambda event: on_directory_change(app, event)
+    app.observer = Observer()
+    app.observer.schedule(app.event_handler, app.void_dir, recursive=False)
+    app.observer.start()
+
+def update_txt_files(app):
+    if not os.path.exists(app.void_dir):
+        os.makedirs(app.void_dir)
+    if not os.path.exists(app.void_file_path):
+        with open(app.void_file_path, 'w', encoding='utf-8') as void_file:
+            void_file.write('')
+    new_txt_files = [f for f in os.listdir(app.read_dir) if f.endswith('.txt') and f != '0.txt']
+    if not hasattr(app, 'txt_files') or not app.txt_files:
+        app.txt_files = new_txt_files
+        app.file_positions = {file: 0 for file in app.txt_files}
+    else:
+        app.txt_files = new_txt_files
+        for file in new_txt_files:
+            if file not in app.file_positions:
+                app.file_positions[file] = 0
+
+def index_all_files(app):
+    all_files = os.listdir(app.read_dir)
+    app.txt_files = [
+        f for f in all_files
+        if f.endswith('.txt') and f != '0.txt' and os.path.getsize(os.path.join(app.read_dir, f)) > 0
+    ]
+    if app.txt_files and not hasattr(app, 'current_file'):
+        app.current_file = app.txt_files[0]
+
+def index_all_lines(app):
+    app.all_lines = []
+    app.file_line_map = {}
+    max_length = 77
+    for txt_file in app.txt_files:
+        file_path = os.path.join(app.read_dir, txt_file)
+        if os.path.exists(file_path):
+            with open(file_path, 'r', encoding='utf-8') as file:
+                lines = file.readlines()
+                file_lines = []
+                for line in lines:
+                    sentences = [s.strip() for s in line.split('.') if s.strip()]
+                    for sentence in sentences:
+                        while len(sentence) > max_length:
+                            file_lines.append(sentence[:max_length])
+                            app.all_lines.append(sentence[:max_length])
+                            sentence = sentence[max_length:]
+                        if sentence:
+                            file_lines.append(sentence)
+                            app.all_lines.append(sentence)
+                app.file_line_map[txt_file] = file_lines
+    print("Líneas indexadas (total):", len(app.all_lines))
+    print("Primeras 5 líneas:", app.all_lines[:5])
+    print("Líneas por archivo:", {k: len(v) for k, v in app.file_line_map.items()})
+
+def refresh_files(app, event=None):
+    print("Refrescando archivos y líneas...")
+    update_txt_files(app)
+    index_all_lines(app)
+    app.current_file = app.txt_files[0] if app.txt_files else None
+    app.current_line_index = 0
+    app.current_line = ""
+    app.entry.clear()
+    print("Refresh completo. Entry vacío, listo para navegar.")
+
+def on_directory_change(app, event):
+    if event.event_type in ('created', 'deleted'):
+        old_files = set(app.txt_files)
+        update_txt_files(app)
+        new_files = set(app.txt_files)
+        if old_files != new_files:
+            index_all_lines(app)
+            print("Reindexado por cambio en archivos")
+
+def void_line(app, event=None):
+    try:
+        line = app.entry.text().strip()
+        app.entry.clear()
+        app.entry.setFocus()
+        if line:
+            if line.startswith("/"):
+                base, ext = os.path.splitext(app.void_file_path)
+                if line == "/":
+                    num_digits = random.randint(1, 10)
+                    random_number = ''.join([str(random.randint(0, 9)) for _ in range(num_digits)])
+                    new_file_path = f"{base}_{random_number}{ext}"
+                else:
+                    new_name = line[1:]
+                    new_file_path = os.path.join(app.void_dir, f"{new_name}{ext}")
+                if os.path.exists(new_file_path):
+                    with open(app.void_file_path, 'r', encoding='utf-8') as void_file:
+                        content_to_append = void_file.read()
+                    with open(new_file_path, 'a', encoding='utf-8') as target_file:
+                        target_file.write(content_to_append)
+                    with open(app.void_file_path, 'w', encoding='utf-8') as void_file:
+                        void_file.write('')
+                else:
+                    os.rename(app.void_file_path, new_file_path)
+                    with open(app.void_file_path, 'w', encoding='utf-8') as void_file:
+                        void_file.write('')
+                app.last_inserted_index = None
+            else:
+                with open(app.void_file_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                if hasattr(app, 'current_zero_line_index') and app.current_zero_line_index is not None:
+                    # Reemplazar la línea original
+                    if app.current_zero_line_index < len(lines):
+                        lines[app.current_zero_line_index] = line + '\n'  # Línea cambiada
+                        app.last_inserted_index = app.current_zero_line_index  # Línea cambiada
+                    app.current_zero_line_index = None
+                    app.current_zero_line = None
+                else:
+                    # Insertar debajo de la última línea enviada o al final
+                    insert_index = (app.last_inserted_index + 1) if hasattr(app, 'last_inserted_index') and app.last_inserted_index is not None else len(lines)
+                    lines.insert(insert_index, line + '\n')
+                    app.last_inserted_index = insert_index
+                with open(app.void_file_path, 'w', encoding='utf-8') as f:
+                    f.writelines(lines)
+                    f.flush()
+                    os.fsync(f.fileno())
+        else:
+            app.current_zero_line_index = None
+            app.current_zero_line = None
+        return 'break'
+    except Exception as e:
+        print(f"Error en void_line: {e}")
+        app.entry.clear()
+        app.entry.setFocus()
+        return 'break'
+
+# --- interface.py ---
+import tkinter as tk
+from tkinter import font, Canvas, Entry
+
+def setup_ui(app):
+    app.root.title("Voider")
+    app.root.attributes("-fullscreen", True)
+    app.root.attributes("-alpha", 1)
+    app.root.config(cursor="none")
+
+    # Loading window
+    loading_window = tk.Toplevel(app.root)
+    loading_window.overrideredirect(True)
+    loading_window.geometry("300x100+{}+{}".format(
+        app.root.winfo_screenwidth() // 2 - 150,
+        app.root.winfo_screenheight() // 2 - 50
+    ))
+    loading_window.configure(bg="black")
+    tk.Label(loading_window, text="Loading potentiality", fg="white", bg="black", font=("Consolas", 11)).pack(expand=True)
+    app.root.update()
+
+    # Canvas and entry setup
+    screen_width = app.root.winfo_screenwidth()
+    screen_height = app.root.winfo_screenheight()
+    thickness = 10
+    canvas = Canvas(app.root, highlightthickness=0)
+    canvas.pack(fill="both", expand=True)
+    center_x = screen_width // 2
+    center_y = screen_height // 2
+    radius = min(screen_width, screen_height) // 2 - thickness - 25
+    canvas.create_oval(center_x - radius, center_y - radius, center_x + radius, center_y + radius, outline="white", width=thickness)
+    canvas.configure(bg="black")
+
+    diameter = 2 * radius
+    entry_font = font.Font(family="Consolas", size=33)
+    average_char_width = entry_font.measure("0")
+    entry_width = (diameter - 20) // average_char_width
+    entry = Entry(app.root, borderwidth=0, highlightthickness=0, bg="black", fg="white", justify="center", font=entry_font, width=entry_width, insertbackground="white")
+    entry.place(x=center_x, y=center_y, anchor="center")
+    entry.focus_set()
+
+    loading_window.destroy()
+    return canvas, entry
+
+def set_opacity(app):
+    app.opacity = max(0.0, min(1.0, app.opacity))
+    app.root.attributes("-alpha", app.opacity)
+
+def increase_opacity(app, event=None):
+    if app.opacity < 1.0:
+        app.opacity = min(1.0, app.opacity + 0.1)
+        set_opacity(app)
+    return "break"
+
+def decrease_opacity(app, event=None):
+    if app.opacity > 0.0:
+        app.opacity = max(0.0, app.opacity - 0.1)
+        set_opacity(app)
+    return "break"
+
+# --- new_interface.py ---
+# --- new_interface.py ---
+import os
+import sys
+import numpy as np
+from PyQt6.QtWidgets import QApplication, QMainWindow, QLineEdit, QLabel, QWidget
+from PyQt6.QtGui import QColor, QPainter, QFont, QCursor, QPen, QPixmap, QImage
+from PyQt6.QtCore import Qt, QTimer
+from files import setup_file_handling, void_line
+from controls import setup_controls, show_next_line, show_previous_line, show_random_line_from_zero
+
+class CustomLineEdit(QLineEdit):
+    """Subclase de QLineEdit para capturar la tecla '0'."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        print(f"Tecla en QLineEdit: {key}, Key_0: {Qt.Key.Key_0}")
+        if key == Qt.Key.Key_0:
+            print("Tecla 0 detectada en QLineEdit, ejecutando show_random_line_from_zero")
+            self.parent.last_inserted_index = None
+            show_random_line_from_zero(self.parent, event)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+class CircleBackground(QWidget):
+    def __init__(self, parent=None, center_x=0, center_y=0, radius=0):
+        super().__init__(parent)
+        self.center_x = center_x
+        self.center_y = center_y
+        self.radius = radius
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor("white"), 10)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(
+            self.center_x - self.radius,
+            self.center_y - self.radius,
+            self.radius * 2,
+            self.radius * 2
+        )
+
+    def resizeEvent(self, event):
+        self.resize(self.parent().size())
+
+class NoiseOverlay(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.noise_pixmap = None
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.generate_noise)
+        self.timer.start(100)
+
+    def generate_noise(self):
+        block_size = 2
+        w, h = self.width(), self.height()
+        h_blocks, w_blocks = h // block_size, w // block_size
+        noise_rgb = np.random.randint(0, 256, (h_blocks, w_blocks, 3), dtype=np.uint8)
+        image = QImage(noise_rgb.data, w_blocks, h_blocks, QImage.Format.Format_RGB888)
+        image = image.scaled(w, h, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation)
+        self.noise_pixmap = QPixmap.fromImage(image)
+        self.update()
+
+    def paintEvent(self, event):
+        if self.noise_pixmap:
+            painter = QPainter(self)
+            painter.setOpacity(0.1)
+            painter.drawPixmap(0, 0, self.noise_pixmap)
+
+class FullscreenCircleApp(QMainWindow):
+    def __init__(self, read_dir=None, void_dir=None):
+        super().__init__()
+        self.opacity = 1.0
+        self.read_dir = read_dir or os.path.dirname(os.path.abspath(__file__))
+        self.void_dir = void_dir or os.path.join(self.read_dir, 'void')
+        self.setWindowTitle("Voider")
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
+        self.setStyleSheet("background-color: black;")
+
+        # Entry setup
+        self.entry = CustomLineEdit(self)
+        self.entry.setFont(QFont("Consolas", 11))
+        self.entry.setStyleSheet("""
+            QLineEdit {
+                background-color: black;
+                color: white;
+                border: none;
+                qproperty-alignment: AlignCenter;
+                selection-background-color: white;
+                selection-color: black;
+            }
+        """)
+        self.entry.setFocus()
+        self.entry.returnPressed.connect(lambda: void_line(self))
+
+        # Show loading label
+        self.loading = QLabel("Loading potentiality", self)
+        self.loading.setFont(QFont("Consolas", 11))
+        self.loading.setStyleSheet("color: white; background-color: black;")
+        self.loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading.resize(300, 100)
+        self.loading.hide()
+
+        # Initialize voider state
+        self.setup_voider_logic()
+        self.init_ui()
+
+    def setup_voider_logic(self):
+        os.makedirs(self.void_dir, exist_ok=True)
+        self.void_file_path = os.path.join(self.void_dir, '0.txt')
+        print(f"void_file_path inicializado: {self.void_file_path}")
+        self.current_line = None
+        self.current_file = None
+        self.current_line_index = 0
+        self.current_zero_line = None
+        self.current_zero_line_index = None
+        self.last_inserted_index = None
+        self.file_positions = {}
+        self.all_lines = []
+        self.file_line_map = {}
+        self.navigation_direction = 1
+        setup_file_handling(self)
+        setup_controls(self)
+
+    def init_ui(self):
+        print("Initializing UI")
+        self.showFullScreen()
+        screen = self.screen().availableGeometry()
+        self.center_x = screen.width() // 2
+        self.center_y = screen.height() // 2
+        self.radius = min(screen.width(), screen.height()) // 2 - 35
+        entry_width = self.radius * 2 - 40
+        self.entry.setFixedWidth(entry_width)
+        self.entry.move(self.center_x - entry_width // 2,
+                        self.center_y - self.entry.height() // 2)
+        self.loading.move(self.center_x - 150, self.center_y - 50)
+        self.loading.show()
+        QTimer.singleShot(1500, self.loading.deleteLater)
+        self.circle_background = CircleBackground(self, self.center_x, self.center_y, self.radius)
+        self.circle_background.resize(self.size())
+        self.circle_background.show()
+        self.noise_overlay = NoiseOverlay(self)
+        self.noise_overlay.resize(self.size())
+        self.noise_overlay.show()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, 'noise_overlay'):
+            self.noise_overlay.resize(self.size())
+        if hasattr(self, 'circle_background'):
+            self.circle_background.resize(self.size())
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        print(f"Tecla en ventana: {key}")
+        if key == Qt.Key.Key_Escape:
+            self.close()
+        elif key == Qt.Key.Key_Up:
+            self.increase_opacity()
+        elif key == Qt.Key.Key_Down:
+            self.decrease_opacity()
+        elif key == Qt.Key.Key_Right:
+            show_next_line(self)
+        elif key == Qt.Key.Key_Left:
+            show_previous_line(self)
+
+    def increase_opacity(self):
+        self.opacity = min(1.0, self.opacity + 0.1)
+        self.setWindowOpacity(self.opacity)
+
+    def decrease_opacity(self):
+        self.opacity = max(0.0, self.opacity - 0.1)
+        self.setWindowOpacity(self.opacity)
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    window = FullscreenCircleApp()
+    window.show()
+    sys.exit(app.exec())
+
+# --- test.py ---
+import os
+import sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from V01DER import interface
+print("Importación exitosa")
+
+# --- tools.py ---
+# --- tools.py ---
+def clean_text(text):
+    return text  # Devolver texto sin cambios
+
+def close_program(app, event=None):
+    app.close()
+
+def show_cursor(app, event=None):
+    app.entry.setCursorVisible(True)
+
+# --- voider.py ---
+# --- voider.py ---
+import os
+import sys
+from PyQt6.QtWidgets import QApplication
+from new_interface import FullscreenCircleApp
+
+if __name__ == "__main__":
+    try:
+        if getattr(sys, 'frozen', False):
+            app_path = os.path.dirname(sys.executable)
+        else:
+            app_path = os.path.dirname(os.path.abspath(__file__))  # V01DER directory
+        read_dir = os.path.dirname(app_path)  # Z:\programming\Voider\V2
+        void_dir = os.path.join(app_path, 'void')  # Z:\programming\Voider\V2\V01DER\void
+        print(f"Working directory: {os.getcwd()}")
+        print(f"App path: {app_path}")
+        print(f"Void dir: {void_dir}")
+        if not os.path.exists(void_dir):
+            print(f"Creating: {void_dir}")
+            try:
+                os.makedirs(void_dir)
+            except Exception as e:
+                print(f"Error creating void folder: {e}")
+        else:
+            print(f"Void folder exists: {void_dir}")
+        app = QApplication(sys.argv)
+        window = FullscreenCircleApp(read_dir=read_dir, void_dir=void_dir)
+        window.show()
+        print("Window shown")
+        sys.exit(app.exec())
+    except Exception as e:
+        print(f"Error: {e}")
+        input("Press Enter to exit...")
+
+# --- __init__.py ---
