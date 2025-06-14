@@ -49,24 +49,15 @@ def index_all_files(app):
 def index_all_lines(app):
     app.all_lines = []
     app.file_line_map = {}
-    max_length = 77
+
     for txt_file in app.txt_files:
         file_path = os.path.join(app.read_dir, txt_file)
         if os.path.exists(file_path):
             with open(file_path, 'r', encoding='utf-8') as file:
-                lines = file.readlines()
-                file_lines = []
-                for line in lines:
-                    sentences = [s.strip() for s in line.split('.') if s.strip()]
-                    for sentence in sentences:
-                        while len(sentence) > max_length:
-                            file_lines.append(sentence[:max_length])
-                            app.all_lines.append(sentence[:max_length])
-                            sentence = sentence[max_length:]
-                        if sentence:
-                            file_lines.append(sentence)
-                            app.all_lines.append(sentence)
-                app.file_line_map[txt_file] = file_lines
+                lines = [line.strip() for line in file.readlines() if line.strip()]
+                app.file_line_map[txt_file] = lines
+                app.all_lines.extend(lines)
+
     print("Líneas indexadas (total):", len(app.all_lines))
     print("Primeras 5 líneas:", app.all_lines[:5])
     print("Líneas por archivo:", {k: len(v) for k, v in app.file_line_map.items()})
@@ -91,11 +82,33 @@ def on_directory_change(app, event):
             print("Reindexado por cambio en archivos")
 
 def void_line(app, event=None):
+    import re
     try:
         line = app.entry.text().strip()
         app.entry.clear()
         app.entry.setFocus()
+
         if line:
+            # --- FORMATO ---
+            # Proteger los puntos suspensivos
+            protected = line.replace("...", "<ELLIPSIS>")
+            raw_sentences = re.split(r'\.(?=\s|$)', protected)
+
+            formatted_lines = []
+            for raw in raw_sentences:
+                s = raw.strip()
+                if not s:
+                    continue
+                s = s.replace("<ELLIPSIS>", "...")
+                s = s[0].upper() + s[1:] if s else s
+                if not s.endswith('.') and not s.endswith('...'):
+                    s += '.'
+                formatted_lines.append(s)
+
+            formatted_text = '\n'.join(formatted_lines)
+
+            # --- FIN FORMATO ---
+
             if line.startswith("/"):
                 base, ext = os.path.splitext(app.void_file_path)
                 if line == "/":
@@ -120,18 +133,18 @@ def void_line(app, event=None):
             else:
                 with open(app.void_file_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
+
                 if hasattr(app, 'current_zero_line_index') and app.current_zero_line_index is not None:
-                    # Reemplazar la línea original
                     if app.current_zero_line_index < len(lines):
-                        lines[app.current_zero_line_index] = line + '\n'  # Línea cambiada
-                        app.last_inserted_index = app.current_zero_line_index  # Línea cambiada
+                        lines[app.current_zero_line_index] = formatted_text + '\n'
+                        app.last_inserted_index = app.current_zero_line_index
                     app.current_zero_line_index = None
                     app.current_zero_line = None
                 else:
-                    # Insertar debajo de la última línea enviada o al final
                     insert_index = (app.last_inserted_index + 1) if hasattr(app, 'last_inserted_index') and app.last_inserted_index is not None else len(lines)
-                    lines.insert(insert_index, line + '\n')
+                    lines.insert(insert_index, formatted_text + '\n')
                     app.last_inserted_index = insert_index
+
                 with open(app.void_file_path, 'w', encoding='utf-8') as f:
                     f.writelines(lines)
                     f.flush()
@@ -139,7 +152,9 @@ def void_line(app, event=None):
         else:
             app.current_zero_line_index = None
             app.current_zero_line = None
+
         return 'break'
+
     except Exception as e:
         print(f"Error en void_line: {e}")
         app.entry.clear()
