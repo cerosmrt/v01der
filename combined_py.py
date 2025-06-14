@@ -17,7 +17,7 @@ with open(output_file, "w", encoding="utf-8") as outfile:
         if file.endswith(".py") and file not in excluded_files:
             included_files.append(file)
             with open(file, "r", encoding="utf-8") as infile:
-                outfile.write(f"\n\n# --- {file} ---\n")
+                outfile.write(f"\n\n# --- {file} ---\n")    
                 outfile.write(infile.read())
 
 print(f"✅ Combined .py files into '{output_file}'")
