@@ -16,12 +16,17 @@ class CustomLineEdit(QLineEdit):
 
     def keyPressEvent(self, event):
         key = event.key()
-        print(f"Tecla en QLineEdit: {key}, Key_0: {Qt.Key.Key_0}")
+        modifiers = event.modifiers()
+        print(f"Tecla en QLineEdit: {key}, Modificadores: {modifiers}")
         if key == Qt.Key.Key_0:
             print("Tecla 0 detectada en QLineEdit, ejecutando show_random_line_from_zero")
             self.parent.last_inserted_index = None
             show_random_line_from_zero(self.parent, event)
             event.accept()
+        elif (key == Qt.Key.Key_Up or key == Qt.Key.Key_Down) and modifiers == Qt.KeyboardModifier.ControlModifier:
+            # Pasa el evento al keyPressEvent del padre
+            self.parent.keyPressEvent(event)
+            # NO llamar event.accept() aquí - deja que el padre maneje el evento completamente
         else:
             super().keyPressEvent(event)
 
@@ -166,13 +171,15 @@ class FullscreenCircleApp(QMainWindow):
 
     def keyPressEvent(self, event):
         key = event.key()
-        print(f"Tecla en ventana: {key}")
+        modifiers = event.modifiers()
+        print(f"Tecla en ventana: {key}, Modificadores: {modifiers}")
+
         if key == Qt.Key.Key_Escape:
             self.noise_controller.stop()
             self.close()
-        elif key == Qt.Key.Key_Up:
+        elif key == Qt.Key.Key_Up and modifiers == Qt.KeyboardModifier.ControlModifier:
             self.increase_opacity()
-        elif key == Qt.Key.Key_Down:
+        elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.ControlModifier:
             self.decrease_opacity()
         elif key == Qt.Key.Key_Right:
             show_next_line(self)
