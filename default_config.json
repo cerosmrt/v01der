@@ -1,0 +1,32 @@
+{
+  "volume": 0.45,
+  "mix": 0,
+
+  "bitcrush": {
+    "bit_depth": 12,
+    "sample_rate_factor": 0.9
+  },
+
+  "glitch_prob": 0.0001,
+  "glitch_amp_min": 0.98,
+  "glitch_amp_max": 1.02,
+
+  "filter_type": "lowpass",
+  "filter_order": 2,
+  "cutoff_freq_low": 20,
+  "cutoff_freq_high": 50,
+
+  "lfo_min_freq": 0.002,
+  "lfo_max_freq": 0.008,
+  "lfo_waveform": "sine",
+  "lfo_depth": 0.015,
+
+  "pan_lfo_min_freq": 0.02,
+  "pan_lfo_max_freq": 0.08,
+  "pan_lfo_waveform": "sine",
+  "pan_lfo_depth": 0.2,
+
+  "delay_time_sec": 0.5,
+  "delay_feedback": 0.15,
+  "delay_mix": 0.08
+}

@@ -1,33 +1,5 @@
 
 
-# --- build_installer.py ---
-import os
-import datetime
-import PyInstaller.__main__
-
-# Obtener fecha y hora actual con precisión
-timestamp = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
-exe_name = f'voider-{timestamp}'
-build_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'builds')
-icon_path = os.path.join(os.path.dirname(__file__), 'voider.ico')
-
-args = [
-    'voider.py',
-    '--onefile',
-    '--windowed',
-    f'--icon={icon_path}',
-    f'--name={exe_name}',
-    f'--add-data={icon_path};.',
-    '--hidden-import=watchdog',
-    f'--distpath={build_dir}\\dist',
-    f'--workpath={build_dir}\\build',
-    f'--specpath={build_dir}'
-]
-
-print(f"Generating {exe_name}.exe...")
-PyInstaller.__main__.run(args)
-print(f"Done, check {os.path.join(build_dir, 'dist', exe_name)}.exe")
-
 # --- controls.py ---
 # --- controls.py ---
 import random
@@ -291,66 +263,6 @@ def void_line(app, event=None):
         app.entry.setFocus()
         return 'break'
 
-# --- interface.py ---
-import tkinter as tk
-from tkinter import font, Canvas, Entry
-
-def setup_ui(app):
-    app.root.title("Voider")
-    app.root.attributes("-fullscreen", True)
-    app.root.attributes("-alpha", 1)
-    app.root.config(cursor="none")
-
-    # Loading window
-    loading_window = tk.Toplevel(app.root)
-    loading_window.overrideredirect(True)
-    loading_window.geometry("300x100+{}+{}".format(
-        app.root.winfo_screenwidth() // 2 - 150,
-        app.root.winfo_screenheight() // 2 - 50
-    ))
-    loading_window.configure(bg="black")
-    tk.Label(loading_window, text="Loading potentiality", fg="white", bg="black", font=("Consolas", 11)).pack(expand=True)
-    app.root.update()
-
-    # Canvas and entry setup
-    screen_width = app.root.winfo_screenwidth()
-    screen_height = app.root.winfo_screenheight()
-    thickness = 10
-    canvas = Canvas(app.root, highlightthickness=0)
-    canvas.pack(fill="both", expand=True)
-    center_x = screen_width // 2
-    center_y = screen_height // 2
-    radius = min(screen_width, screen_height) // 2 - thickness - 25
-    canvas.create_oval(center_x - radius, center_y - radius, center_x + radius, center_y + radius, outline="white", width=thickness)
-    canvas.configure(bg="black")
-
-    diameter = 2 * radius
-    entry_font = font.Font(family="Consolas", size=33)
-    average_char_width = entry_font.measure("0")
-    entry_width = (diameter - 20) // average_char_width
-    entry = Entry(app.root, borderwidth=0, highlightthickness=0, bg="black", fg="white", justify="center", font=entry_font, width=entry_width, insertbackground="white")
-    entry.place(x=center_x, y=center_y, anchor="center")
-    entry.focus_set()
-
-    loading_window.destroy()
-    return canvas, entry
-
-def set_opacity(app):
-    app.opacity = max(0.0, min(1.0, app.opacity))
-    app.root.attributes("-alpha", app.opacity)
-
-def increase_opacity(app, event=None):
-    if app.opacity < 1.0:
-        app.opacity = min(1.0, app.opacity + 0.1)
-        set_opacity(app)
-    return "break"
-
-def decrease_opacity(app, event=None):
-    if app.opacity > 0.0:
-        app.opacity = max(0.0, app.opacity - 0.1)
-        set_opacity(app)
-    return "break"
-
 # --- new_interface.py ---
 # --- new_interface.py ---
 import os
@@ -361,9 +273,9 @@ from PyQt6.QtGui import QColor, QPainter, QFont, QCursor, QPen, QPixmap, QImage
 from PyQt6.QtCore import Qt, QTimer
 from files import setup_file_handling, void_line
 from controls import setup_controls, show_next_line, show_previous_line, show_random_line_from_zero
+from noise_controls import NoiseController
 
 class CustomLineEdit(QLineEdit):
-    """Subclase de QLineEdit para capturar la tecla '0'."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
@@ -441,7 +353,6 @@ class FullscreenCircleApp(QMainWindow):
         self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
         self.setStyleSheet("background-color: black;")
 
-        # Entry setup
         self.entry = CustomLineEdit(self)
         self.entry.setFont(QFont("Consolas", 11))
         self.entry.setStyleSheet("""
@@ -457,7 +368,6 @@ class FullscreenCircleApp(QMainWindow):
         self.entry.setFocus()
         self.entry.returnPressed.connect(lambda: void_line(self))
 
-        # Show loading label
         self.loading = QLabel("Loading potentiality", self)
         self.loading.setFont(QFont("Consolas", 11))
         self.loading.setStyleSheet("color: white; background-color: black;")
@@ -465,7 +375,13 @@ class FullscreenCircleApp(QMainWindow):
         self.loading.resize(300, 100)
         self.loading.hide()
 
-        # Initialize voider state
+        # Initialize noise controller for meditative noise
+        self.noise_controller = NoiseController(
+            block_size=1024, volume=0.3, noise_type='brown',
+            bitcrush={'bit_depth': 10, 'sample_rate_factor': 0.7},
+            lfo_min_freq=0.03, lfo_max_freq=0.1, glitch_prob=0.005, cutoff_freq=2500
+        )
+
         self.setup_voider_logic()
         self.init_ui()
 
@@ -518,6 +434,7 @@ class FullscreenCircleApp(QMainWindow):
         key = event.key()
         print(f"Tecla en ventana: {key}")
         if key == Qt.Key.Key_Escape:
+            self.noise_controller.stop()
             self.close()
         elif key == Qt.Key.Key_Up:
             self.increase_opacity()
@@ -542,12 +459,186 @@ if __name__ == '__main__':
     window.show()
     sys.exit(app.exec())
 
-# --- test.py ---
+# --- noise_controls.py ---
+# --- noise_controls.py ---
+import numpy as np
+import sounddevice as sd
+from scipy.signal import butter, lfilter
+from PyQt6.QtCore import QTimer
+
+class NoiseController:
+    def __init__(self, sample_rate=44100, block_size=1024, volume=0.01, noise_type='brown',
+                 bitcrush={'bit_depth': 8, 'sample_rate_factor': 0.6},
+                 lfo_min_freq=0.01, lfo_max_freq=0.03, glitch_prob=0.001, cutoff_freq=300):
+        self.sample_rate = sample_rate
+        self.block_size = block_size
+        self.volume = volume
+        self.noise_type = noise_type
+        self.bitcrush = bitcrush
+        self.lfo_min_freq = lfo_min_freq
+        self.lfo_max_freq = lfo_max_freq
+        self.glitch_prob = glitch_prob
+        self.cutoff_freq = cutoff_freq
+        self.stream = None
+        self.timer = None
+        self.lfo_state = 0
+
+        try:
+            self.stream = sd.OutputStream(
+                samplerate=sample_rate,
+                blocksize=block_size,
+                channels=2,
+                callback=self.audio_callback
+            )
+            self.stream.start()
+            self.start_lfo_generator()
+            print(f"NoiseController: {self.noise_type.capitalize()} subtle meditative noise started.")
+        except Exception as e:
+            print(f"NoiseController: Error initializing audio: {str(e)}")
+
+    def lowpass_filter(self, data, cutoff, order=4):
+        nyq = 0.5 * self.sample_rate
+        normal_cutoff = cutoff / nyq
+        b, a = butter(order, normal_cutoff, btype='low', analog=False)
+        return lfilter(b, a, data, axis=0)
+
+    def apply_bitcrush(self, noise, bit_depth=16, sample_rate_factor=1.0):
+        original_length = len(noise)
+        if sample_rate_factor < 1.0:
+            new_length = int(original_length * sample_rate_factor)
+            new_length = max(1, new_length)
+            indices = np.linspace(0, original_length - 1, new_length).astype(int)
+            noise = noise[indices]
+            noise = np.tile(noise, (original_length // len(noise) + 1))[:original_length]
+        if bit_depth < 16:
+            max_val = 2 ** (bit_depth - 1) - 1
+            noise = np.round(noise / 32767 * max_val) / max_val * 32767
+        return noise.astype(np.int16)
+
+    def generate_variable_lfo(self, t, min_freq, max_freq):
+        n_points = 4
+        rand_freqs = np.random.uniform(min_freq, max_freq, n_points)
+        rand_phases = np.random.uniform(0, 2 * np.pi, n_points)
+        key_times = np.linspace(0, self.block_size / self.sample_rate, n_points)
+        freqs = np.interp(t, key_times, rand_freqs)
+        phases = np.interp(t, key_times, rand_phases)
+        return 0.97 + 0.03 * np.sin(2 * np.pi * freqs * t + phases)
+
+    def audio_callback(self, outdata, frames, time, status):
+        if status:
+            print(f"Audio callback status: {status}")
+        if frames != self.block_size:
+            return
+
+        if self.noise_type == 'brown':
+            white = np.random.uniform(-1, 1, frames)
+            brown = np.cumsum(white)
+            noise = brown / np.max(np.abs(brown)) * 0.8
+        elif self.noise_type == 'white':
+            noise = np.random.uniform(-1, 1, frames)
+        elif self.noise_type == 'pink':
+            white = np.random.uniform(-1, 1, frames)
+            pink = np.cumsum(white) / np.arange(1, frames + 1) ** 0.5
+            noise = pink / np.max(np.abs(pink)) * 0.8
+        else:
+            noise = np.zeros(frames)
+
+        noise = self.lowpass_filter(noise, cutoff=self.cutoff_freq)
+
+        t = np.linspace(self.lfo_state, self.lfo_state + frames / self.sample_rate, frames)
+        self.lfo_state += frames / self.sample_rate
+        noise *= self.generate_variable_lfo(t, self.lfo_min_freq, self.lfo_max_freq)
+
+        if np.random.rand() < 0.25:  # reducir cantidad de glitches
+            glitch_mask = np.random.random(frames) < self.glitch_prob
+            noise[glitch_mask] *= np.random.uniform(0.9, 1.1, glitch_mask.sum())
+
+        if self.bitcrush:
+            bit_depth = self.bitcrush.get('bit_depth', 8)
+            sample_rate_factor = self.bitcrush.get('sample_rate_factor', 0.6)
+            noise = (noise * 32767).astype(np.float32)
+            noise = self.apply_bitcrush(noise, bit_depth, sample_rate_factor)
+
+        noise = noise / np.max(np.abs(noise)) * 0.9 * self.volume
+        stereo_noise = np.repeat(noise[:, np.newaxis], 2, axis=1)
+        outdata[:] = stereo_noise
+
+    def start_lfo_generator(self):
+        self.timer = QTimer()
+        self.timer.timeout.connect(lambda: None)
+        self.timer.start(100)
+
+    def stop(self):
+        if self.stream:
+            self.stream.stop()
+            self.stream.close()
+        if self.timer:
+            self.timer.stop()
+        print("NoiseController: Stopped")
+
+    def set_volume(self, volume):
+        self.volume = max(0.0, min(1.0, volume))
+        print(f"NoiseController: Volume set to {self.volume:.2f}")
+
+    def set_noise_type(self, noise_type):
+        self.noise_type = noise_type
+        print(f"NoiseController: Noise type set to {self.noise_type}")
+
+    def set_bitcrush(self, bitcrush):
+        self.bitcrush = bitcrush
+        print(f"NoiseController: Bitcrush set to {self.bitcrush}")
+
+    def set_lfo_freq(self, min_freq, max_freq):
+        self.lfo_min_freq = min_freq
+        self.lfo_max_freq = max_freq
+        print(f"NoiseController: LFO freq range set to {min_freq:.2f}-{max_freq:.2f} Hz")
+
+    def set_glitch_prob(self, prob):
+        self.glitch_prob = max(0.0, min(0.1, prob))
+        print(f"NoiseController: Glitch probability set to {self.glitch_prob:.4f}")
+
+    def set_cutoff_freq(self, cutoff):
+        self.cutoff_freq = max(50, min(8000, cutoff))
+        print(f"NoiseController: Cutoff frequency set to {self.cutoff_freq} Hz")
+
+
+# --- nuitka_build_installer .py ---
 import os
+import datetime
+import subprocess
 import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from V01DER import interface
-print("Importación exitosa")
+
+# Generar nombre con timestamp
+timestamp = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
+exe_name = f'voider-{timestamp}'
+
+# Rutas
+base_dir = os.path.dirname(os.path.abspath(__file__))
+build_dir = os.path.join(os.path.dirname(base_dir), 'builds')
+icon_path = os.path.join(base_dir, 'voider.ico')
+script_path = os.path.join(base_dir, 'new_interface.py')
+
+# Comando de compilación con Nuitka
+cmd = [
+    sys.executable,  # Usa el mismo Python con el que ejecutás esto
+    "-m", "nuitka",
+    "--standalone",
+    "--onefile",
+    "--windows-disable-console",
+    "--enable-plugin=pyqt6",
+    "--enable-plugin=numpy",
+    f"--include-data-file={icon_path}=voider.ico",
+    f"--windows-icon-from-ico={icon_path}",
+    f"--output-dir={build_dir}",
+    "--nofollow-import-to=tkinter",
+    f"--output-filename={exe_name}.exe",
+    script_path
+]
+
+print(f"Compiling {exe_name}.exe with Nuitka...\n")
+subprocess.run(cmd, shell=True)
+print(f"\n✅ Done. Check the build folder: {os.path.join(build_dir, f'{exe_name}.exe')}")
+
 
 # --- tools.py ---
 # --- tools.py ---

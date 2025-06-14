@@ -7,10 +7,9 @@ from PyQt6.QtGui import QColor, QPainter, QFont, QCursor, QPen, QPixmap, QImage
 from PyQt6.QtCore import Qt, QTimer
 from files import setup_file_handling, void_line
 from controls import setup_controls, show_next_line, show_previous_line, show_random_line_from_zero
-from noise_controls import NoiseController  # Agregado
+from noise_controls import NoiseController
 
 class CustomLineEdit(QLineEdit):
-    """Subclase de QLineEdit para capturar la tecla '0'."""
     def __init__(self, parent=None):
         super().__init__(parent)
         self.parent = parent
@@ -88,7 +87,6 @@ class FullscreenCircleApp(QMainWindow):
         self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
         self.setStyleSheet("background-color: black;")
 
-        # Entry setup
         self.entry = CustomLineEdit(self)
         self.entry.setFont(QFont("Consolas", 11))
         self.entry.setStyleSheet("""
@@ -104,7 +102,6 @@ class FullscreenCircleApp(QMainWindow):
         self.entry.setFocus()
         self.entry.returnPressed.connect(lambda: void_line(self))
 
-        # Show loading label
         self.loading = QLabel("Loading potentiality", self)
         self.loading.setFont(QFont("Consolas", 11))
         self.loading.setStyleSheet("color: white; background-color: black;")
@@ -112,10 +109,13 @@ class FullscreenCircleApp(QMainWindow):
         self.loading.resize(300, 100)
         self.loading.hide()
 
-        # Initialize noise controller
-        self.noise_controller = NoiseController()  # Reemplaza init_audio
+        # Initialize noise controller for meditative noise
+        self.noise_controller = NoiseController(
+            block_size=1024, volume=0.3, noise_type='brown',
+            bitcrush={'bit_depth': 10, 'sample_rate_factor': 0.7},
+            lfo_min_freq=0.03, lfo_max_freq=0.1, glitch_prob=0.005, cutoff_freq=2500
+        )
 
-        # Initialize voider state
         self.setup_voider_logic()
         self.init_ui()
 
@@ -168,7 +168,7 @@ class FullscreenCircleApp(QMainWindow):
         key = event.key()
         print(f"Tecla en ventana: {key}")
         if key == Qt.Key.Key_Escape:
-            self.noise_controller.stop()  # Modificado
+            self.noise_controller.stop()
             self.close()
         elif key == Qt.Key.Key_Up:
             self.increase_opacity()

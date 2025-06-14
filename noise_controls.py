@@ -1,114 +1,140 @@
 # --- noise_controls.py ---
 import numpy as np
-import pygame
+import sounddevice as sd
 from scipy.signal import butter, lfilter
+from PyQt6.QtCore import QTimer
 
 class NoiseController:
-    def __init__(self, sample_rate=44100, duration=5.0, volume=0.4, noise_type='brown'):
+    def __init__(self, sample_rate=44100, block_size=1024, volume=0.01, noise_type='brown',
+                 bitcrush={'bit_depth': 8, 'sample_rate_factor': 0.6},
+                 lfo_min_freq=0.01, lfo_max_freq=0.03, glitch_prob=0.001, cutoff_freq=300):
         self.sample_rate = sample_rate
-        self.duration = duration
+        self.block_size = block_size
         self.volume = volume
         self.noise_type = noise_type
-        self.sound = None
+        self.bitcrush = bitcrush
+        self.lfo_min_freq = lfo_min_freq
+        self.lfo_max_freq = lfo_max_freq
+        self.glitch_prob = glitch_prob
+        self.cutoff_freq = cutoff_freq
+        self.stream = None
+        self.timer = None
+        self.lfo_state = 0
+
         try:
-            pygame.mixer.init(frequency=sample_rate, size=-16, channels=2)
-            self.generate_noise()
-            self.play()
-            print(f"NoiseController: {self.noise_type.capitalize()} noise playback started")
+            self.stream = sd.OutputStream(
+                samplerate=sample_rate,
+                blocksize=block_size,
+                channels=2,
+                callback=self.audio_callback
+            )
+            self.stream.start()
+            self.start_lfo_generator()
+            print(f"NoiseController: {self.noise_type.capitalize()} subtle meditative noise started.")
         except Exception as e:
             print(f"NoiseController: Error initializing audio: {str(e)}")
 
-    def lowpass_filter(self, data, cutoff=4000, order=6):
+    def lowpass_filter(self, data, cutoff, order=4):
         nyq = 0.5 * self.sample_rate
         normal_cutoff = cutoff / nyq
         b, a = butter(order, normal_cutoff, btype='low', analog=False)
-        return lfilter(b, a, data)
+        return lfilter(b, a, data, axis=0)
 
-    def generate_variable_lfo(self, t, min_freq=0.05, max_freq=0.15):
-        """Genera un LFO no periódico interpolando entre frecuencias aleatorias."""
-        n_points = 10
+    def apply_bitcrush(self, noise, bit_depth=16, sample_rate_factor=1.0):
+        original_length = len(noise)
+        if sample_rate_factor < 1.0:
+            new_length = int(original_length * sample_rate_factor)
+            new_length = max(1, new_length)
+            indices = np.linspace(0, original_length - 1, new_length).astype(int)
+            noise = noise[indices]
+            noise = np.tile(noise, (original_length // len(noise) + 1))[:original_length]
+        if bit_depth < 16:
+            max_val = 2 ** (bit_depth - 1) - 1
+            noise = np.round(noise / 32767 * max_val) / max_val * 32767
+        return noise.astype(np.int16)
+
+    def generate_variable_lfo(self, t, min_freq, max_freq):
+        n_points = 4
         rand_freqs = np.random.uniform(min_freq, max_freq, n_points)
-        rand_phases = np.random.uniform(0, 2*np.pi, n_points)
-        key_times = np.linspace(0, self.duration, n_points)
+        rand_phases = np.random.uniform(0, 2 * np.pi, n_points)
+        key_times = np.linspace(0, self.block_size / self.sample_rate, n_points)
         freqs = np.interp(t, key_times, rand_freqs)
         phases = np.interp(t, key_times, rand_phases)
-        lfo = 0.85 + 0.15 * np.sin(2 * np.pi * freqs * t + phases)
-        return lfo
+        return 0.97 + 0.03 * np.sin(2 * np.pi * freqs * t + phases)
 
-    def generate_noise(self):
-        samples = int(self.sample_rate * self.duration)
+    def audio_callback(self, outdata, frames, time, status):
+        if status:
+            print(f"Audio callback status: {status}")
+        if frames != self.block_size:
+            return
 
-        # Generar ruido base
-        if self.noise_type == 'white':
-            noise = np.random.uniform(-1, 1, samples)
-        elif self.noise_type == 'pink':
-            white = np.random.uniform(-1, 1, samples)
-            pink = np.cumsum(white) / np.arange(1, samples + 1) ** 0.5
-            noise = pink / np.max(np.abs(pink)) * 0.9
-        elif self.noise_type == 'brown':
-            white = np.random.uniform(-1, 1, samples)
+        if self.noise_type == 'brown':
+            white = np.random.uniform(-1, 1, frames)
             brown = np.cumsum(white)
-            brown = brown / np.max(np.abs(brown)) * 0.9
-            noise = self.lowpass_filter(brown, cutoff=4000)
+            noise = brown / np.max(np.abs(brown)) * 0.8
+        elif self.noise_type == 'white':
+            noise = np.random.uniform(-1, 1, frames)
+        elif self.noise_type == 'pink':
+            white = np.random.uniform(-1, 1, frames)
+            pink = np.cumsum(white) / np.arange(1, frames + 1) ** 0.5
+            noise = pink / np.max(np.abs(pink)) * 0.8
         else:
-            raise ValueError(f"Unsupported noise type: {self.noise_type}")
+            noise = np.zeros(frames)
 
-        # Tiempo
-        t = np.linspace(0, self.duration, samples, endpoint=False)
+        noise = self.lowpass_filter(noise, cutoff=self.cutoff_freq)
 
-        # LFO aleatorio interpolado
-        mod = self.generate_variable_lfo(t)
+        t = np.linspace(self.lfo_state, self.lfo_state + frames / self.sample_rate, frames)
+        self.lfo_state += frames / self.sample_rate
+        noise *= self.generate_variable_lfo(t, self.lfo_min_freq, self.lfo_max_freq)
 
-        # Glitch sutil
-        glitch = 1.0 + 0.02 * np.random.randn(samples)
+        if np.random.rand() < 0.25:  # reducir cantidad de glitches
+            glitch_mask = np.random.random(frames) < self.glitch_prob
+            noise[glitch_mask] *= np.random.uniform(0.9, 1.1, glitch_mask.sum())
 
-        # Aplicar modulación y glitch
-        noise *= mod * glitch
+        if self.bitcrush:
+            bit_depth = self.bitcrush.get('bit_depth', 8)
+            sample_rate_factor = self.bitcrush.get('sample_rate_factor', 0.6)
+            noise = (noise * 32767).astype(np.float32)
+            noise = self.apply_bitcrush(noise, bit_depth, sample_rate_factor)
 
-        # Normalizar y convertir a estéreo
-        noise = noise / np.max(np.abs(noise)) * 0.9
-        noise = (noise * 32767).astype(np.int16)
+        noise = noise / np.max(np.abs(noise)) * 0.9 * self.volume
         stereo_noise = np.repeat(noise[:, np.newaxis], 2, axis=1)
-        self.sound = pygame.mixer.Sound(stereo_noise.tobytes())
+        outdata[:] = stereo_noise
 
-    def play(self):
-        if self.sound:
-            self.sound.set_volume(self.volume)
-            self.sound.play(loops=-1)
+    def start_lfo_generator(self):
+        self.timer = QTimer()
+        self.timer.timeout.connect(lambda: None)
+        self.timer.start(100)
 
     def stop(self):
-        if self.sound:
-            self.sound.stop()
-        pygame.mixer.quit()
+        if self.stream:
+            self.stream.stop()
+            self.stream.close()
+        if self.timer:
+            self.timer.stop()
+        print("NoiseController: Stopped")
 
     def set_volume(self, volume):
         self.volume = max(0.0, min(1.0, volume))
-        if self.sound:
-            self.sound.set_volume(self.volume)
         print(f"NoiseController: Volume set to {self.volume:.2f}")
-
-    def set_duration(self, duration):
-        self.duration = max(1.0, duration)
-        if self.sound:
-            self.sound.stop()
-        self.generate_noise()
-        self.play()
-        print(f"NoiseController: Duration set to {self.duration:.2f} seconds")
 
     def set_noise_type(self, noise_type):
         self.noise_type = noise_type
-        if self.sound:
-            self.sound.stop()
-        self.generate_noise()
-        self.play()
         print(f"NoiseController: Noise type set to {self.noise_type}")
 
-# --- Ejemplo de uso ---
-if __name__ == "__main__":
-    nc = NoiseController()
-    try:
-        while True:
-            pass  # Mantener el programa corriendo
-    except KeyboardInterrupt:
-        nc.stop()
-        print("NoiseController: Playback stopped")
+    def set_bitcrush(self, bitcrush):
+        self.bitcrush = bitcrush
+        print(f"NoiseController: Bitcrush set to {self.bitcrush}")
+
+    def set_lfo_freq(self, min_freq, max_freq):
+        self.lfo_min_freq = min_freq
+        self.lfo_max_freq = max_freq
+        print(f"NoiseController: LFO freq range set to {min_freq:.2f}-{max_freq:.2f} Hz")
+
+    def set_glitch_prob(self, prob):
+        self.glitch_prob = max(0.0, min(0.1, prob))
+        print(f"NoiseController: Glitch probability set to {self.glitch_prob:.4f}")
+
+    def set_cutoff_freq(self, cutoff):
+        self.cutoff_freq = max(50, min(8000, cutoff))
+        print(f"NoiseController: Cutoff frequency set to {self.cutoff_freq} Hz")
