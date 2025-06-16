@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QLineEdit, QLabel, QWidge
 from PyQt6.QtGui import QColor, QPainter, QFont, QCursor, QPen, QPixmap, QImage
 from PyQt6.QtCore import Qt, QTimer
 from files import setup_file_handling, void_line
-from controls import setup_controls, show_next_line, show_previous_line, show_random_line_from_zero
+from controls import setup_controls, show_random_line_from_zero, show_previous_zero_line, show_next_zero_line
 from noise_controls import NoiseController
 
 class CustomLineEdit(QLineEdit):
@@ -17,16 +17,13 @@ class CustomLineEdit(QLineEdit):
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
-        print(f"Tecla en QLineEdit: {key}, Modificadores: {modifiers}")
         if key == Qt.Key.Key_0:
             print("Tecla 0 detectada en QLineEdit, ejecutando show_random_line_from_zero")
             self.parent.last_inserted_index = None
             show_random_line_from_zero(self.parent, event)
             event.accept()
         elif (key == Qt.Key.Key_Up or key == Qt.Key.Key_Down) and modifiers == Qt.KeyboardModifier.ControlModifier:
-            # Pasa el evento al keyPressEvent del padre
             self.parent.keyPressEvent(event)
-            # NO llamar event.accept() aquí - deja que el padre maneje el evento completamente
         else:
             super().keyPressEvent(event)
 
@@ -114,7 +111,6 @@ class FullscreenCircleApp(QMainWindow):
         self.loading.resize(300, 100)
         self.loading.hide()
 
-        # Initialize noise controller for meditative noise
         self.noise_controller = NoiseController(
             block_size=1024, volume=0.3, noise_type='brown',
             bitcrush={'bit_depth': 10, 'sample_rate_factor': 0.7},
@@ -128,16 +124,9 @@ class FullscreenCircleApp(QMainWindow):
         os.makedirs(self.void_dir, exist_ok=True)
         self.void_file_path = os.path.join(self.void_dir, '0.txt')
         print(f"void_file_path inicializado: {self.void_file_path}")
-        self.current_line = None
-        self.current_file = None
-        self.current_line_index = 0
         self.current_zero_line = None
         self.current_zero_line_index = None
         self.last_inserted_index = None
-        self.file_positions = {}
-        self.all_lines = []
-        self.file_line_map = {}
-        self.navigation_direction = 1
         setup_file_handling(self)
         setup_controls(self)
 
@@ -181,10 +170,10 @@ class FullscreenCircleApp(QMainWindow):
             self.increase_opacity()
         elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.ControlModifier:
             self.decrease_opacity()
-        elif key == Qt.Key.Key_Right:
-            show_next_line(self)
-        elif key == Qt.Key.Key_Left:
-            show_previous_line(self)
+        elif key == Qt.Key.Key_Up:
+            show_previous_zero_line(self)
+        elif key == Qt.Key.Key_Down:
+            show_next_zero_line(self)
 
     def increase_opacity(self):
         self.opacity = min(1.0, self.opacity + 0.1)

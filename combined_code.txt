@@ -1,5 +1,221 @@
 
 
+# --- build_exe.py ---
+# SOLUCIÓN 1: Script simplificado sin scipy problemático
+import os
+import datetime
+import sys
+import PyInstaller.__main__
+
+def build_simple():
+    """Versión simplificada que evita el problema con scipy"""
+    timestamp = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
+    exe_name = f'voider-{timestamp}'
+    
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    build_root = os.path.join(base_dir, 'builds')
+    dist_dir = os.path.join(build_root, 'dist')
+    work_dir = os.path.join(build_root, 'build')
+    spec_dir = build_root
+    main_script = os.path.join(base_dir, 'voider.py')
+    icon_path = os.path.join(base_dir, 'voider.ico')
+    
+    os.makedirs(dist_dir, exist_ok=True)
+    os.makedirs(work_dir, exist_ok=True)
+    os.makedirs(spec_dir, exist_ok=True)
+    
+    # Argumentos mínimos - SIN scipy que está causando problemas
+    args = [
+        '--clean',
+        '--onedir',  # Cambiar a onedir por ahora
+        '--windowed',
+        main_script,
+        f'--name={exe_name}',
+        f'--distpath={dist_dir}',
+        f'--workpath={work_dir}',
+        f'--specpath={spec_dir}',
+        
+        # Solo los imports esenciales
+        '--hidden-import=PyQt6',
+        '--hidden-import=PyQt6.QtCore',
+        '--hidden-import=PyQt6.QtGui',
+        '--hidden-import=PyQt6.QtWidgets',
+        '--hidden-import=sounddevice',
+        
+        # Excluir scipy problemático
+        '--exclude-module=scipy',
+        '--exclude-module=numpy.distutils',
+    ]
+    
+    if os.path.exists(icon_path):
+        args.append(f'--icon={icon_path}')
+    
+    print(f"🔧 Construyendo versión simplificada: {exe_name}")
+    try:
+        PyInstaller.__main__.run(args)
+        print("✅ ¡Versión simplificada completada!")
+        return True
+    except Exception as e:
+        print(f"❌ Error en versión simplificada: {e}")
+        return False
+
+def build_with_spec_file():
+    """SOLUCIÓN 2: Crear archivo .spec personalizado"""
+    timestamp = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
+    exe_name = f'voider-{timestamp}'
+    
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    spec_content = f'''# -*- mode: python ; coding: utf-8 -*-
+
+a = Analysis(
+    ['voider.py'],
+    pathex=['{base_dir.replace(chr(92), chr(92)+chr(92))}'],
+    binaries=[],
+    datas=[('voider.ico', '.')] if os.path.exists('voider.ico') else [],
+    hiddenimports=[
+        'PyQt6',
+        'PyQt6.QtCore',
+        'PyQt6.QtGui', 
+        'PyQt6.QtWidgets',
+        'sounddevice',
+    ],
+    hookspath=[],
+    runtime_hooks=[],
+    excludes=['scipy', 'matplotlib', 'tkinter', 'pygame', 'torch'],
+    noarchive=False,
+)
+
+pyz = PYZ(a.pure)
+
+exe = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    [],
+    name='{exe_name}',
+    debug=False,
+    bootloader_ignore_signals=False,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    runtime_tmpdir=None,
+    console=False,
+    disable_windowed_traceback=False,
+    argv_emulation=False,
+    target_arch=None,
+    codesign_identity=None,
+    entitlements_file=None,
+    icon='voider.ico' if os.path.exists('voider.ico') else None,
+)
+'''
+    
+    spec_file = f'{exe_name}.spec'
+    with open(spec_file, 'w') as f:
+        f.write(spec_content)
+    
+    print(f"📝 Archivo .spec creado: {spec_file}")
+    print("🔧 Ejecuta manualmente: pyinstaller --clean " + spec_file)
+    return spec_file
+
+def build_conda_fix():
+    """SOLUCIÓN 3: Versión para entornos conda/problemas de dependencias"""
+    timestamp = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
+    exe_name = f'voider-{timestamp}'
+    
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    build_root = os.path.join(base_dir, 'builds')
+    dist_dir = os.path.join(build_root, 'dist')
+    work_dir = os.path.join(build_root, 'build')
+    spec_dir = build_root
+    main_script = os.path.join(base_dir, 'voider.py')
+    
+    os.makedirs(dist_dir, exist_ok=True)
+    os.makedirs(work_dir, exist_ok=True)
+    os.makedirs(spec_dir, exist_ok=True)
+    
+    args = [
+        '--clean',
+        '--onedir',
+        '--console',  # Temporalmente para ver errores
+        main_script,
+        f'--name={exe_name}',
+        f'--distpath={dist_dir}',
+        f'--workpath={work_dir}',
+        f'--specpath={spec_dir}',
+        '--noupx',  # Desactivar UPX que a veces causa problemas
+        '--debug=all',  # Más información de debug
+    ]
+    
+    print(f"🔧 Construyendo versión debug: {exe_name}")
+    try:
+        PyInstaller.__main__.run(args)
+        print("✅ ¡Versión debug completada!")
+        return True
+    except Exception as e:
+        print(f"❌ Error en versión debug: {e}")
+        return False
+
+def main():
+    print("🚀 Iniciando soluciones para PyInstaller...")
+    print("=" * 50)
+    
+    # Información del sistema
+    print("📊 Información del sistema:")
+    print(f"   Python: {sys.version}")
+    print(f"   Directorio: {os.getcwd()}")
+    
+    try:
+        import PyInstaller
+        print(f"   PyInstaller: {PyInstaller.__version__}")
+    except:
+        print("   PyInstaller: No disponible")
+    
+    try:
+        import scipy
+        print(f"   SciPy: {scipy.__version__}")
+    except:
+        print("   SciPy: No disponible")
+    
+    print("=" * 50)
+    
+    # Intentar soluciones en orden
+    print("\n1️⃣ Intentando versión simplificada...")
+    if build_simple():
+        return
+    
+    print("\n2️⃣ Creando archivo .spec personalizado...")
+    spec_file = build_with_spec_file()
+    
+    print("\n3️⃣ Intentando versión debug...")
+    if build_conda_fix():
+        return
+    
+    print("\n" + "=" * 50)
+    print("🔧 INSTRUCCIONES MANUALES:")
+    print("=" * 50)
+    print("Si nada funcionó automáticamente, prueba estos comandos manuales:")
+    print()
+    print("OPCIÓN A - Sin scipy:")
+    print("pyinstaller --onedir --windowed --clean voider.py --exclude-module=scipy")
+    print()
+    print("OPCIÓN B - Solo lo esencial:")
+    print("pyinstaller --onedir --console voider.py")
+    print()
+    print("OPCIÓN C - Usar el .spec generado:")
+    print(f"pyinstaller --clean {spec_file}")
+    print()
+    print("OPCIÓN D - Actualizar PyInstaller:")
+    print("pip install --upgrade pyinstaller")
+    print()
+    print("OPCIÓN E - Crear entorno virtual limpio:")
+    print("python -m venv venv_clean")
+    print("venv_clean\\Scripts\\activate")
+    print("pip install PyQt6 sounddevice pyinstaller")
+
+if __name__ == "__main__":
+    main()
+
 # --- controls.py ---
 # --- controls.py ---
 import random
@@ -38,168 +254,101 @@ def show_random_line_from_zero(app, event=None):
     except Exception as e:
         print(f"Error en show_random_line_from_zero: {e}")
 
-def handle_key_press(app, event=None):
-    """Función original para mezclar archivos (guardada para uso futuro)."""
-    random.shuffle(app.txt_files)
-    if app.txt_files:
-        app.current_file = app.txt_files[0]
-        file_lines = app.file_line_map.get(app.current_file, [])
-        if file_lines:
-            app.current_line_index = random.randint(0, len(file_lines) - 1)
-            app.current_line = file_lines[app.current_line_index]
-            app.entry.setText(app.current_line)
-            for file in app.txt_files:
-                app.file_positions[file] = random.randint(0, len(app.file_line_map.get(file, [])) - 1) if app.file_line_map.get(file) else 0
-            app.navigation_direction = random.choice([1, -1])
-            print("\nShuffled files:", app.txt_files)
-            print("File positions:", app.file_positions)
-            print(f"Showing random line: {app.current_line}, Index: {app.current_line_index}")
-            print(f"Navigation direction: {'normal' if app.navigation_direction == 1 else 'inverted'}")
+def show_previous_zero_line(app, event=None):
+    """Muestra la línea previa en 0.txt, con comportamiento circular y contextual."""
+    try:
+        zero_file_path = app.void_file_path
+        print(f"Navegando a línea previa en: {zero_file_path}")
+        if not os.path.exists(zero_file_path):
+            print("0.txt no existe.")
+            app.entry.clear()
+            return
 
-def show_previous_file(app, event=None):
-    if not app.txt_files:
-        return
-    if app.current_file:
-        app.file_positions[app.current_file] = app.current_line_index
-    current_file_index = app.txt_files.index(app.current_file) if app.current_file else 0
-    previous_file_index = (current_file_index - 1) % len(app.txt_files)
-    app.current_file = app.txt_files[previous_file_index]
-    file_lines = app.file_line_map.get(app.current_file, [])
-    if file_lines:
-        app.current_line_index = app.file_positions.get(app.current_file, 0) % len(file_lines)
-        app.current_line = file_lines[app.current_line_index]
-        app.entry.setText(app.current_line)
-        print(f"Previous File - Now at: {app.current_file}, Index: {app.current_line_index}, Line: {app.current_line}")
+        with open(zero_file_path, 'r', encoding='utf-8') as f:
+            lines = [line.rstrip('\n') for line in f.readlines() if line.strip()]
+        
+        if not lines:
+            print("0.txt está vacío.")
+            app.entry.clear()
+            app.current_zero_line_index = None
+            app.current_zero_line = None
+            return
 
-def show_next_file(app, event=None):
-    if not app.txt_files:
-        return
-    if not app.entry.text().strip() and app.current_line == "":
-        file_lines = app.file_line_map.get(app.current_file, [])
-        if file_lines:
-            app.current_line_index = app.file_positions.get(app.current_file, 0) % len(file_lines)
-            app.current_line = file_lines[app.current_line_index]
-            app.entry.setText(app.current_line)
-            print(f"Next File - First show: {app.current_file}, Index: {app.current_line_index}, Line: {app.current_line}")
-    else:
-        if app.current_file:
-            app.file_positions[app.current_file] = app.current_line_index
-        current_file_index = app.txt_files.index(app.current_file) if app.current_file else -1
-        next_file_index = (current_file_index + 1) % len(app.txt_files)
-        app.current_file = app.txt_files[next_file_index]
-        file_lines = app.file_line_map.get(app.current_file, [])
-        if file_lines:
-            app.current_line_index = app.file_positions.get(app.current_file, 0) % len(file_lines)
-            app.current_line = file_lines[app.current_line_index]
-            app.entry.setText(app.current_line)
-            print(f"Next File - Now at: {app.current_file}, Index: {app.current_line_index}, Line: {app.current_line}")
+        if not app.entry.text().strip() and app.last_inserted_index is not None:
+            app.current_zero_line_index = app.last_inserted_index
+            print(f"Entry vacío, mostrando última línea enviada, Index: {app.current_zero_line_index}")
+        elif app.current_zero_line_index is None:
+            app.current_zero_line_index = len(lines) - 1
+            print(f"Sin índice actual, empezando desde la última línea, Index: {app.current_zero_line_index}")
+        else:
+            app.current_zero_line_index = (app.current_zero_line_index - 1) % len(lines)
+            print(f"Navegando a línea previa, Index: {app.current_zero_line_index}")
 
-def show_previous_line(app, event=None):
-    if not app.current_file or not app.file_line_map.get(app.current_file, []):
-        return
-    file_lines = app.file_line_map[app.current_file]
-    app.current_line_index = (app.current_line_index - 1) % len(file_lines)
-    app.current_line = file_lines[app.current_line_index]
-    app.entry.setText(app.current_line)
-    app.file_positions[app.current_file] = app.current_line_index
-    print(f"Previous Line - File: {app.current_file}, Index: {app.current_line_index}, Line: {app.current_line}")
+        app.current_zero_line = lines[app.current_zero_line_index]
+        app.entry.setText(app.current_zero_line)
+        app.entry.setCursorPosition(0)
+        print(f"Previous Line - 0.txt, Index: {app.current_zero_line_index}, Line: {app.current_zero_line}")
+    except Exception as e:
+        print(f"Error en show_previous_zero_line: {e}")
+        app.entry.clear()
 
-def show_next_line(app, event=None):
-    if not app.current_file or not app.file_line_map.get(app.current_file, []):
-        return
-    file_lines = app.file_line_map[app.current_file]
-    app.current_line_index = (app.current_line_index + 1) % len(file_lines)
-    app.current_line = file_lines[app.current_line_index]
-    app.entry.setText(app.current_line)
-    app.file_positions[app.current_file] = app.current_line_index
-    print(f"Next Line - File: {app.current_file}, Index: {app.current_line_index}, Line: {app.current_line}")
+def show_next_zero_line(app, event=None):
+    """Muestra la línea siguiente en 0.txt, con comportamiento circular."""
+    try:
+        zero_file_path = app.void_file_path
+        print(f"Navegando a línea siguiente en: {zero_file_path}")
+        if not os.path.exists(zero_file_path):
+            print("0.txt no existe.")
+            app.entry.clear()
+            return
+
+        with open(zero_file_path, 'r', encoding='utf-8') as f:
+            lines = [line.rstrip('\n') for line in f.readlines() if line.strip()]
+        
+        if not lines:
+            print("0.txt está vacío.")
+            app.entry.clear()
+            app.current_zero_line_index = None
+            app.current_zero_line = None
+            return
+
+        if not app.entry.text().strip() and app.last_inserted_index is not None:
+            app.current_zero_line_index = (app.last_inserted_index + 1) % len(lines)
+            print(f"Entry vacío, mostrando línea siguiente a la última enviada, Index: {app.current_zero_line_index}")
+        elif app.current_zero_line_index is None:
+            app.current_zero_line_index = 0
+            print(f"Sin índice actual, empezando desde la primera línea, Index: {app.current_zero_line_index}")
+        else:
+            app.current_zero_line_index = (app.current_zero_line_index + 1) % len(lines)
+            print(f"Navegando a línea siguiente, Index: {app.current_zero_line_index}")
+
+        app.current_zero_line = lines[app.current_zero_line_index]
+        app.entry.setText(app.current_zero_line)
+        app.entry.setCursorPosition(0)
+        print(f"Next Line - 0.txt, Index: {app.current_zero_line_index}, Line: {app.current_zero_line}")
+    except Exception as e:
+        print(f"Error en show_next_zero_line: {e}")
+        app.entry.clear()
 
 # --- files.py ---
 # --- files.py ---
 import os
 import random
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
+import re
 
 def setup_file_handling(app):
-    app.txt_files = []
-    update_txt_files(app)
-    index_all_lines(app)
-    if app.txt_files:
-        app.current_file = app.txt_files[0]
-        app.current_line_index = 0
-        app.current_line = ""
-        app.entry.clear()
-    
-    app.event_handler = FileSystemEventHandler()
-    app.event_handler.on_created = lambda event: on_directory_change(app, event)
-    app.event_handler.on_deleted = lambda event: on_directory_change(app, event)
-    app.observer = Observer()
-    app.observer.schedule(app.event_handler, app.void_dir, recursive=False)
-    app.observer.start()
-
-def update_txt_files(app):
+    """Inicializa el manejo de 0.txt en el directorio void."""
     if not os.path.exists(app.void_dir):
         os.makedirs(app.void_dir)
     if not os.path.exists(app.void_file_path):
         with open(app.void_file_path, 'w', encoding='utf-8') as void_file:
             void_file.write('')
-    new_txt_files = [f for f in os.listdir(app.read_dir) if f.endswith('.txt') and f != '0.txt']
-    if not hasattr(app, 'txt_files') or not app.txt_files:
-        app.txt_files = new_txt_files
-        app.file_positions = {file: 0 for file in app.txt_files}
-    else:
-        app.txt_files = new_txt_files
-        for file in new_txt_files:
-            if file not in app.file_positions:
-                app.file_positions[file] = 0
-
-def index_all_files(app):
-    all_files = os.listdir(app.read_dir)
-    app.txt_files = [
-        f for f in all_files
-        if f.endswith('.txt') and f != '0.txt' and os.path.getsize(os.path.join(app.read_dir, f)) > 0
-    ]
-    if app.txt_files and not hasattr(app, 'current_file'):
-        app.current_file = app.txt_files[0]
-
-def index_all_lines(app):
-    app.all_lines = []
-    app.file_line_map = {}
-
-    for txt_file in app.txt_files:
-        file_path = os.path.join(app.read_dir, txt_file)
-        if os.path.exists(file_path):
-            with open(file_path, 'r', encoding='utf-8') as file:
-                lines = [line.strip() for line in file.readlines() if line.strip()]
-                app.file_line_map[txt_file] = lines
-                app.all_lines.extend(lines)
-
-    print("Líneas indexadas (total):", len(app.all_lines))
-    print("Primeras 5 líneas:", app.all_lines[:5])
-    print("Líneas por archivo:", {k: len(v) for k, v in app.file_line_map.items()})
-
-def refresh_files(app, event=None):
-    print("Refrescando archivos y líneas...")
-    update_txt_files(app)
-    index_all_lines(app)
-    app.current_file = app.txt_files[0] if app.txt_files else None
-    app.current_line_index = 0
-    app.current_line = ""
-    app.entry.clear()
-    print("Refresh completo. Entry vacío, listo para navegar.")
-
-def on_directory_change(app, event):
-    if event.event_type in ('created', 'deleted'):
-        old_files = set(app.txt_files)
-        update_txt_files(app)
-        new_files = set(app.txt_files)
-        if old_files != new_files:
-            index_all_lines(app)
-            print("Reindexado por cambio en archivos")
+    app.current_zero_line = None
+    app.current_zero_line_index = None
+    app.last_inserted_index = None
 
 def void_line(app, event=None):
-    import re
+    """Procesa la línea ingresada, formateándola y guardándola en 0.txt."""
     try:
         line = app.entry.text().strip()
         app.entry.clear()
@@ -207,10 +356,8 @@ def void_line(app, event=None):
 
         if line:
             # --- FORMATO ---
-            # Proteger los puntos suspensivos
             protected = line.replace("...", "<ELLIPSIS>")
             raw_sentences = re.split(r'\.(?=\s|$)', protected)
-
             formatted_lines = []
             for raw in raw_sentences:
                 s = raw.strip()
@@ -221,9 +368,7 @@ def void_line(app, event=None):
                 if not s.endswith('.') and not s.endswith('...'):
                     s += '.'
                 formatted_lines.append(s)
-
             formatted_text = '\n'.join(formatted_lines)
-
             # --- FIN FORMATO ---
 
             if line.startswith("/"):
@@ -247,6 +392,7 @@ def void_line(app, event=None):
                     with open(app.void_file_path, 'w', encoding='utf-8') as void_file:
                         void_file.write('')
                 app.last_inserted_index = None
+                app.current_zero_line_index = None
             else:
                 with open(app.void_file_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
@@ -261,6 +407,7 @@ def void_line(app, event=None):
                     insert_index = (app.last_inserted_index + 1) if hasattr(app, 'last_inserted_index') and app.last_inserted_index is not None else len(lines)
                     lines.insert(insert_index, formatted_text + '\n')
                     app.last_inserted_index = insert_index
+                    app.current_zero_line_index = None
 
                 with open(app.void_file_path, 'w', encoding='utf-8') as f:
                     f.writelines(lines)
@@ -287,7 +434,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QLineEdit, QLabel, QWidge
 from PyQt6.QtGui import QColor, QPainter, QFont, QCursor, QPen, QPixmap, QImage
 from PyQt6.QtCore import Qt, QTimer
 from files import setup_file_handling, void_line
-from controls import setup_controls, show_next_line, show_previous_line, show_random_line_from_zero
+from controls import setup_controls, show_random_line_from_zero, show_previous_zero_line, show_next_zero_line
 from noise_controls import NoiseController
 
 class CustomLineEdit(QLineEdit):
@@ -297,12 +444,14 @@ class CustomLineEdit(QLineEdit):
 
     def keyPressEvent(self, event):
         key = event.key()
-        print(f"Tecla en QLineEdit: {key}, Key_0: {Qt.Key.Key_0}")
+        modifiers = event.modifiers()
         if key == Qt.Key.Key_0:
             print("Tecla 0 detectada en QLineEdit, ejecutando show_random_line_from_zero")
             self.parent.last_inserted_index = None
             show_random_line_from_zero(self.parent, event)
             event.accept()
+        elif (key == Qt.Key.Key_Up or key == Qt.Key.Key_Down) and modifiers == Qt.KeyboardModifier.ControlModifier:
+            self.parent.keyPressEvent(event)
         else:
             super().keyPressEvent(event)
 
@@ -390,7 +539,6 @@ class FullscreenCircleApp(QMainWindow):
         self.loading.resize(300, 100)
         self.loading.hide()
 
-        # Initialize noise controller for meditative noise
         self.noise_controller = NoiseController(
             block_size=1024, volume=0.3, noise_type='brown',
             bitcrush={'bit_depth': 10, 'sample_rate_factor': 0.7},
@@ -404,16 +552,9 @@ class FullscreenCircleApp(QMainWindow):
         os.makedirs(self.void_dir, exist_ok=True)
         self.void_file_path = os.path.join(self.void_dir, '0.txt')
         print(f"void_file_path inicializado: {self.void_file_path}")
-        self.current_line = None
-        self.current_file = None
-        self.current_line_index = 0
         self.current_zero_line = None
         self.current_zero_line_index = None
         self.last_inserted_index = None
-        self.file_positions = {}
-        self.all_lines = []
-        self.file_line_map = {}
-        self.navigation_direction = 1
         setup_file_handling(self)
         setup_controls(self)
 
@@ -457,10 +598,10 @@ class FullscreenCircleApp(QMainWindow):
             self.increase_opacity()
         elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.ControlModifier:
             self.decrease_opacity()
-        elif key == Qt.Key.Key_Right:
-            show_next_line(self)
-        elif key == Qt.Key.Key_Left:
-            show_previous_line(self)
+        elif key == Qt.Key.Key_Up:
+            show_previous_zero_line(self)
+        elif key == Qt.Key.Key_Down:
+            show_next_zero_line(self)
 
     def increase_opacity(self):
         self.opacity = min(1.0, self.opacity + 0.1)
@@ -617,44 +758,6 @@ class NoiseController:
     def set_cutoff_freq(self, cutoff):
         self.cutoff_freq = max(50, min(8000, cutoff))
         print(f"NoiseController: Cutoff frequency set to {self.cutoff_freq} Hz")
-
-
-# --- nuitka_build_installer .py ---
-import os
-import datetime
-import subprocess
-import sys
-
-# Generar nombre con timestamp
-timestamp = datetime.datetime.now().strftime('%y-%m-%d_%H-%M-%S')
-exe_name = f'voider-{timestamp}'
-
-# Rutas
-base_dir = os.path.dirname(os.path.abspath(__file__))
-build_dir = os.path.join(os.path.dirname(base_dir), 'builds')
-icon_path = os.path.join(base_dir, 'voider.ico')
-script_path = os.path.join(base_dir, 'new_interface.py')
-
-# Comando de compilación con Nuitka
-cmd = [
-    sys.executable,  # Usa el mismo Python con el que ejecutás esto
-    "-m", "nuitka",
-    "--standalone",
-    "--onefile",
-    "--windows-disable-console",
-    "--enable-plugin=pyqt6",
-    "--enable-plugin=numpy",
-    f"--include-data-file={icon_path}=voider.ico",
-    f"--windows-icon-from-ico={icon_path}",
-    f"--output-dir={build_dir}",
-    "--nofollow-import-to=tkinter",
-    f"--output-filename={exe_name}.exe",
-    script_path
-]
-
-print(f"Compiling {exe_name}.exe with Nuitka...\n")
-subprocess.run(cmd, shell=True)
-print(f"\n✅ Done. Check the build folder: {os.path.join(build_dir, f'{exe_name}.exe')}")
 
 
 # --- tools.py ---

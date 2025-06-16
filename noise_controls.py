@@ -1,7 +1,6 @@
 # --- noise_controls.py ---
 import numpy as np
 import sounddevice as sd
-from scipy.signal import butter, lfilter
 from PyQt6.QtCore import QTimer
 
 class NoiseController:
@@ -34,11 +33,16 @@ class NoiseController:
         except Exception as e:
             print(f"NoiseController: Error initializing audio: {str(e)}")
 
-    def lowpass_filter(self, data, cutoff, order=4):
-        nyq = 0.5 * self.sample_rate
-        normal_cutoff = cutoff / nyq
-        b, a = butter(order, normal_cutoff, btype='low', analog=False)
-        return lfilter(b, a, data, axis=0)
+    def lowpass_filter(self, data, cutoff, alpha=0.1):
+        """
+        Filtro pasa bajos simple usando un filtro de media móvil exponencial.
+        `alpha` controla la suavidad (más bajo = más suave).
+        """
+        filtered = np.zeros_like(data)
+        filtered[0] = data[0]
+        for i in range(1, len(data)):
+            filtered[i] = alpha * data[i] + (1 - alpha) * filtered[i - 1]
+        return filtered
 
     def apply_bitcrush(self, noise, bit_depth=16, sample_rate_factor=1.0):
         original_length = len(noise)
@@ -97,7 +101,7 @@ class NoiseController:
             noise = (noise * 32767).astype(np.float32)
             noise = self.apply_bitcrush(noise, bit_depth, sample_rate_factor)
 
-        noise = noise / np.max(np.abs(noise)) * 0.9 * self.volume
+        noise = noise / np.max(np.abs(noise)) * 0.1 * self.volume
         stereo_noise = np.repeat(noise[:, np.newaxis], 2, axis=1)
         outdata[:] = stereo_noise
 
