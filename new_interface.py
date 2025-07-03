@@ -60,10 +60,10 @@ class NoiseOverlay(QWidget):
         self.noise_pixmap = None
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.generate_noise)
-        self.timer.start(100)
+        self.timer.start(50)
 
     def generate_noise(self):
-        block_size = 3
+        block_size = 1
         w, h = self.width(), self.height()
         h_blocks, w_blocks = h // block_size, w // block_size
         noise_gray = np.random.randint(0, 256, (h_blocks, w_blocks), dtype=np.uint8)
@@ -75,7 +75,7 @@ class NoiseOverlay(QWidget):
     def paintEvent(self, event):
         if self.noise_pixmap:
             painter = QPainter(self)
-            painter.setOpacity(0.11)
+            painter.setOpacity(0.09)  # <- Más visible
             painter.drawPixmap(0, 0, self.noise_pixmap)
 
 class FullscreenCircleApp(QMainWindow):
@@ -144,12 +144,15 @@ class FullscreenCircleApp(QMainWindow):
         self.loading.move(self.center_x - 150, self.center_y - 50)
         self.loading.show()
         QTimer.singleShot(1500, self.loading.deleteLater)
+
         self.circle_background = CircleBackground(self, self.center_x, self.center_y, self.radius)
         self.circle_background.resize(self.size())
         self.circle_background.show()
+
         self.noise_overlay = NoiseOverlay(self)
         self.noise_overlay.resize(self.size())
         self.noise_overlay.show()
+        self.noise_overlay.raise_()  # <- Esto lo pone sobre todo
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
