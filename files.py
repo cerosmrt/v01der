@@ -72,14 +72,18 @@ def void_line(app, event=None):
                     app.current_zero_line = None
                 else:
                     insert_index = (app.last_inserted_index + 1) if hasattr(app, 'last_inserted_index') and app.last_inserted_index is not None else len(lines)
-                    lines.insert(insert_index, formatted_text + '\n')
-                    app.last_inserted_index = insert_index
+                    lines[insert_index:insert_index] = [line + '\n' for line in formatted_lines]
+                    app.last_inserted_index = insert_index + len(formatted_lines) - 1  # Actualización clave
                     app.current_zero_line_index = None
+                    app.current_zero_line = None
 
                 with open(app.void_file_path, 'w', encoding='utf-8') as f:
                     f.writelines(lines)
                     f.flush()
                     os.fsync(f.fileno())
+                
+                print(f"Líneas insertadas: {len(formatted_lines)}, nuevo índice: {app.last_inserted_index}")  # Depuración
+
         else:
             app.current_zero_line_index = None
             app.current_zero_line = None
