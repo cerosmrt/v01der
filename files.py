@@ -1,6 +1,8 @@
 import os
 import random
 import re
+import datetime # Asegúrate de que datetime esté importado si se usa en otras partes que afectan a void_line
+import sys # Necesario para determinar app_path en setup_file_handling si se ejecuta como congelado
 
 def setup_file_handling(app):
     """Inicializa el manejo de 0.txt en el directorio void y el archivo activo."""
@@ -29,6 +31,28 @@ def void_line(app, event=None):
             app.current_active_line_index = None 
             app.current_active_line = None
             return # No hacer nada si la línea está vacía
+
+        # --- Nuevo: Verificar si se intenta añadir un punto consecutivo ---
+        last_line_in_file = None
+        if os.path.exists(app.current_file_path):
+            with open(app.current_file_path, 'r', encoding='utf-8') as f:
+                # Leer líneas en reversa para encontrar la última línea no vacía eficientemente
+                # y evitar cargar todo el archivo en memoria si es muy grande.
+                lines = f.readlines()
+                for l in reversed(lines):
+                    stripped_l = l.strip()
+                    if stripped_l: # Encontrar la última línea que no esté vacía
+                        last_line_in_file = stripped_l
+                        break
+
+        # Si la entrada es un solo punto y la última línea en el archivo también es un solo punto,
+        # entonces no se procesa esta entrada.
+        if line == '.' and last_line_in_file == '.':
+            print("Se evitó añadir puntos únicos consecutivos.")
+            app.current_active_line_index = None
+            app.current_active_line = None
+            app.last_inserted_index = None
+            return # No procesar esta entrada
 
         # --- 1. Manejo de comandos de cambio de archivo (//) ---
         if line.startswith("//"):
@@ -225,18 +249,22 @@ def void_line(app, event=None):
             return # Finalizar procesamiento de esta línea
 
         # --- 4. Manejo de texto normal (si no es un comando) ---
-        protected = line.replace("...", "<ELLIPSIS>")
-        raw_sentences = re.split(r'\.(?=\s|$)', protected) 
-        formatted_lines = []
-        for raw in raw_sentences:
-            s = raw.strip()
-            if not s:
-                continue
-            s = s.replace("<ELLIPSIS>", "...") 
-            s = s[0].upper() + s[1:] if s else s
-            if not s.endswith('.') and not s.endswith('...'):
-                s += '.'
-            formatted_lines.append(s) 
+        # MODIFICACIÓN APLICADA AQUÍ (Opción 1)
+        if line == '.': # <-- Si la línea es SOLO un punto, la tratamos de forma especial
+            formatted_lines = ['.'] # La lista de líneas formateadas es solo un punto.
+        else: 
+            protected = line.replace("...", "<ELLIPSIS>")
+            raw_sentences = re.split(r'\.(?=\s|$)', protected) 
+            formatted_lines = []
+            for raw in raw_sentences:
+                s = raw.strip()
+                if not s:
+                    continue
+                s = s.replace("<ELLIPSIS>", "...") 
+                s = s[0].upper() + s[1:] if s else s
+                if not s.endswith('.') and not s.endswith('...'):
+                    s += '.'
+                formatted_lines.append(s) 
         formatted_text = '\n'.join(formatted_lines)
         # --- FIN FORMATO ---
 
