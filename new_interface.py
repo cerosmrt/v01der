@@ -16,11 +16,17 @@ class CustomLineEdit(QLineEdit):
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
+        
         if key == Qt.Key.Key_0:
-            print("Tecla 0 detectada en QLineEdit, ejecutando show_random_line_from_current_file") 
-            self.parent.last_inserted_index = None 
-            show_random_line_from_current_file(self.parent, event)
-            event.accept()
+            # Si no hay una barra en el texto actual del QLineEdit, activa el shuffle
+            if '/' not in self.text(): 
+                print("Tecla 0 detectada en QLineEdit SIN barra, ejecutando show_random_line_from_current_file") 
+                self.parent.last_inserted_index = None 
+                show_random_line_from_current_file(self.parent, event)
+                event.accept() # Consumir el evento para que '0' no se escriba
+            else:
+                # Si hay una barra, permite que '0' se escriba normalmente
+                super().keyPressEvent(event) 
         elif (key == Qt.Key.Key_Up or key == Qt.Key.Key_Down) and modifiers == Qt.KeyboardModifier.ControlModifier:
             self.parent.keyPressEvent(event)
         else:
