@@ -406,7 +406,20 @@ def void_line(app, event=None):
         if not line:
             app.current_active_line_index = None 
             app.current_active_line = None
-            return # No hacer nada si la línea está vacía
+            
+            # --- MODIFICACIÓN AQUÍ: Mover al final del archivo si la entrada está vacía ---
+            lines_in_file = []
+            if os.path.exists(app.current_file_path):
+                with open(app.current_file_path, 'r', encoding='utf-8') as f:
+                    lines_in_file = f.readlines()
+            
+            # Establecer last_inserted_index al índice de la última línea (o -1 si está vacío)
+            # Esto asegura que la próxima inserción se haga al final del archivo.
+            app.last_inserted_index = len(lines_in_file) - 1 
+
+            print(f"Input vacío: Reiniciando índice de línea activa y estableciendo last_inserted_index a {app.last_inserted_index} (final del archivo).")
+            return # No hacer nada más si la línea está vacía
+        # --- FIN MODIFICACIÓN ---
 
         # --- Nuevo: Verificar si se intenta añadir un punto consecutivo ---
         last_line_in_file = None
