@@ -87,8 +87,12 @@ class FullscreenCircleApp(QMainWindow):
     def __init__(self, read_dir=None, void_dir=None):
         super().__init__()
         self.opacity = 1.0
-        self.read_dir = read_dir or os.path.dirname(os.path.abspath(__file__))
-        self.void_dir = void_dir or os.path.join(self.read_dir, 'void')
+        self.read_dir = read_dir # Se mantiene read_dir como se pasa
+        
+        # MODIFICACIÓN CLAVE AQUÍ: void_dir se asigna directamente desde el parámetro
+        # No se intenta determinar aquí, solo se usa el valor que viene de voider.py
+        self.void_dir = void_dir 
+        
         self.setWindowTitle("Voider")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
@@ -126,17 +130,22 @@ class FullscreenCircleApp(QMainWindow):
         self.init_ui()
 
     def setup_voider_logic(self):
-        os.makedirs(self.void_dir, exist_ok=True)
-        self.void_file_path = os.path.join(self.void_dir, '0.txt') # Ruta a 0.txt (constante)
+        # Ya no es necesario crear el directorio aquí.
+        # La función setup_file_handling en files.py se encargará de asegurar que void_dir exista
+        # (ya sea la carpeta del EXE o la subcarpeta 'void' para el script).
+        # os.makedirs(self.void_dir, exist_ok=True) # <-- Esta línea se elimina si estaba aquí.
+        
+        # void_file_path ahora apunta a 0.txt directamente en la carpeta definida por self.void_dir.
+        self.void_file_path = os.path.join(self.void_dir, '0.txt') 
         print(f"void_file_path inicializado (0.txt): {self.void_file_path}")
         
         # Nueva variable para el archivo actualmente activo
         self.current_file_path = self.void_file_path # Inicialmente, el archivo activo es 0.txt
 
-        self.current_active_line = None # Renombrado de current_zero_line
-        self.current_active_line_index = None # Renombrado de current_zero_line_index
+        self.current_active_line = None 
+        self.current_active_line_index = None 
         self.last_inserted_index = None 
-        setup_file_handling(self)
+        setup_file_handling(self) # Esta función se encargará de crear el directorio si es necesario
         setup_controls(self)
 
     def init_ui(self):
@@ -194,9 +203,3 @@ class FullscreenCircleApp(QMainWindow):
     def decrease_opacity(self):
         self.opacity = max(0.0, self.opacity - 0.1)
         self.setWindowOpacity(self.opacity)
-
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    window = FullscreenCircleApp()
-    window.show()
-    sys.exit(app.exec())
