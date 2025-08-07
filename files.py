@@ -296,7 +296,6 @@ def void_line(app, event=None):
                     s += '.'
                 formatted_lines.append(s) 
         formatted_text = '\n'.join(formatted_lines)
-        # --- FIN FORMATO ---
 
         # Leer líneas del archivo activo
         with open(app.current_file_path, 'r', encoding='utf-8') as f:
@@ -307,8 +306,15 @@ def void_line(app, event=None):
             if app.current_active_line_index < len(lines): 
                 lines[app.current_active_line_index] = formatted_text + '\n'
                 app.last_inserted_index = app.current_active_line_index
-            app.current_active_line_index = None 
-            app.current_active_line = None
+                app.current_active_line = formatted_text
+                app.current_active_line_index = None  # Reset to allow appending next time
+            else:
+                # Si el índice está fuera de rango, añadir como nueva línea
+                insert_index = len(lines)
+                lines.append(formatted_text + '\n')
+                app.last_inserted_index = insert_index
+                app.current_active_line = formatted_text
+                app.current_active_line_index = None
         else:
             # Si estamos añadiendo una nueva línea
             insert_index = (app.last_inserted_index + 1) if hasattr(app, 'last_inserted_index') and app.last_inserted_index is not None else len(lines)
@@ -319,8 +325,8 @@ def void_line(app, event=None):
 
             lines[insert_index:insert_index] = [line_to_add + '\n' for line_to_add in formatted_lines]
             app.last_inserted_index = insert_index + len(formatted_lines) - 1 
-            app.current_active_line_index = None
-            app.current_active_line = None
+            app.current_active_line = formatted_text
+            app.current_active_line_index = None  # Reset to allow appending next time
 
         # Escribir todas las líneas de vuelta al archivo activo
         with open(app.current_file_path, 'w', encoding='utf-8') as f:
@@ -329,6 +335,7 @@ def void_line(app, event=None):
             os.fsync(f.fileno())
         
         print(f"Líneas insertadas/modificadas en {os.path.basename(app.current_file_path)}.") 
+        app.first_up_after_submission = True  # Enable special navigation for first Up press
 
     except Exception as e:
         print(f"Error en void_line: {e}") 
