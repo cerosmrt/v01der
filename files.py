@@ -1,23 +1,33 @@
+# --- files.py ---
 import os
 import random
 import re
-import datetime # Asegúrate de que datetime esté importado si se usa en otras partes que afectan a void_line
-import sys # Necesario para determinar app_path en setup_file_handling si se ejecuta como congelado
+import datetime
+import sys
 
 def setup_file_handling(app):
-    """Inicializa el manejo de 0.txt en el directorio void y el archivo activo."""
+    """Initializes file handling for the active file and ensures void_dir exists."""
+    # Ensure void_dir exists
     if not os.path.exists(app.void_dir):
         os.makedirs(app.void_dir)
-    # Asegura que 0.txt exista al inicio
-    if not os.path.exists(app.void_file_path):
-        with open(app.void_file_path, 'w', encoding='utf-8') as void_file:
-            void_file.write('')
     
-    # Inicializa el archivo activo al 0.txt
-    app.current_file_path = app.void_file_path 
+    # Ensure the active file (current_file_path) exists
+    if not os.path.exists(app.current_file_path):
+        with open(app.current_file_path, 'w', encoding='utf-8') as f:
+            f.write('')
+        print(f"Created active file: {app.current_file_path}")
+    
+    # Ensure 0.txt exists (as a fallback or for commands like //)
+    if not os.path.exists(app.void_file_path):
+        with open(app.void_file_path, 'w', encoding='utf-8') as f:
+            f.write('')
+        print(f"Created 0.txt: {app.void_file_path}")
+    
+    # Initialize navigation state
     app.current_active_line = None
     app.current_active_line_index = None
-    app.last_inserted_index = None 
+    app.last_inserted_index = None
+    print(f"File handling initialized. Active file: {app.current_file_path}")
 
 def void_line(app, event=None):
     """Procesa la línea ingresada, formateándola y guardándola en el archivo activo,
@@ -239,7 +249,6 @@ def void_line(app, event=None):
                 if all_file_lines[block_start_index - 1].strip() != '.':
                     # Insertar un punto en la posición donde solía comenzar el bloque movido
                     new_source_lines.insert(block_start_index, '.\n')
-
 
             # Reescribir el archivo de origen
             with open(app.current_file_path, 'w', encoding='utf-8') as current_f:

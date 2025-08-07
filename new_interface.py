@@ -1,3 +1,4 @@
+# --- new_interface.py ---
 import os
 import sys
 import numpy as np
@@ -18,14 +19,14 @@ class CustomLineEdit(QLineEdit):
         modifiers = event.modifiers()
         
         if key == Qt.Key.Key_0:
-            # Si no hay una barra en el texto actual del QLineEdit, activa el shuffle
+            # If no slash in the current QLineEdit text, trigger shuffle
             if '/' not in self.text(): 
-                print("Tecla 0 detectada en QLineEdit SIN barra, ejecutando show_random_line_from_current_file") 
+                print("Key 0 detected in QLineEdit without slash, executing show_random_line_from_current_file") 
                 self.parent.last_inserted_index = None 
                 show_random_line_from_current_file(self.parent, event)
-                event.accept() # Consumir el evento para que '0' no se escriba
+                event.accept() # Consume the event so '0' isn't written
             else:
-                # Si hay una barra, permite que '0' se escriba normalmente
+                # If there's a slash, allow '0' to be written normally
                 super().keyPressEvent(event) 
         elif (key == Qt.Key.Key_Up or key == Qt.Key.Key_Down) and modifiers == Qt.KeyboardModifier.ControlModifier:
             self.parent.keyPressEvent(event)
@@ -80,18 +81,17 @@ class NoiseOverlay(QWidget):
     def paintEvent(self, event):
         if self.noise_pixmap:
             painter = QPainter(self)
-            painter.setOpacity(0.09)  # <- Más visible 
+            painter.setOpacity(0.09)  # More visible 
             painter.drawPixmap(0, 0, self.noise_pixmap)
 
 class FullscreenCircleApp(QMainWindow):
-    def __init__(self, read_dir=None, void_dir=None):
+    def __init__(self, read_dir=None, void_dir=None, file_to_open=None):
         super().__init__()
         self.opacity = 1.0
-        self.read_dir = read_dir # Se mantiene read_dir como se pasa
-        
-        # MODIFICACIÓN CLAVE AQUÍ: void_dir se asigna directamente desde el parámetro
-        # No se intenta determinar aquí, solo se usa el valor que viene de voider.py
-        self.void_dir = void_dir 
+        self.read_dir = read_dir
+        self.void_dir = void_dir
+        # Store the file to open (either provided or will be set to 0.txt in setup_file_handling)
+        self.file_to_open = file_to_open
         
         self.setWindowTitle("Voider")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
@@ -130,22 +130,20 @@ class FullscreenCircleApp(QMainWindow):
         self.init_ui()
 
     def setup_voider_logic(self):
-        # Ya no es necesario crear el directorio aquí.
-        # La función setup_file_handling en files.py se encargará de asegurar que void_dir exista
-        # (ya sea la carpeta del EXE o la subcarpeta 'void' para el script).
-        # os.makedirs(self.void_dir, exist_ok=True) # <-- Esta línea se elimina si estaba aquí.
+        # Set the current file path based on file_to_open
+        if self.file_to_open:
+            self.current_file_path = self.file_to_open
+        else:
+            self.current_file_path = os.path.join(self.void_dir, '0.txt')
         
-        # void_file_path ahora apunta a 0.txt directamente en la carpeta definida por self.void_dir.
-        self.void_file_path = os.path.join(self.void_dir, '0.txt') 
-        print(f"void_file_path inicializado (0.txt): {self.void_file_path}")
+        self.void_file_path = os.path.join(self.void_dir, '0.txt')  # Keep reference to 0.txt
+        print(f"void_file_path (0.txt): {self.void_file_path}")
+        print(f"current_file_path (active file): {self.current_file_path}")
         
-        # Nueva variable para el archivo actualmente activo
-        self.current_file_path = self.void_file_path # Inicialmente, el archivo activo es 0.txt
-
         self.current_active_line = None 
         self.current_active_line_index = None 
         self.last_inserted_index = None 
-        setup_file_handling(self) # Esta función se encargará de crear el directorio si es necesario
+        setup_file_handling(self)  # This will ensure the file exists
         setup_controls(self)
 
     def init_ui(self):
@@ -170,7 +168,7 @@ class FullscreenCircleApp(QMainWindow):
         self.noise_overlay = NoiseOverlay(self)
         self.noise_overlay.resize(self.size())
         self.noise_overlay.show()
-        self.noise_overlay.raise_() # <- Esto lo pone sobre todo
+        self.noise_overlay.raise_() # Put it on top of everything
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -182,7 +180,7 @@ class FullscreenCircleApp(QMainWindow):
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
-        print(f"Tecla en ventana: {key}, Modificadores: {modifiers}")
+        print(f"Key in window: {key}, Modifiers: {modifiers}")
 
         if key == Qt.Key.Key_Escape:
             self.noise_controller.stop()
@@ -192,9 +190,9 @@ class FullscreenCircleApp(QMainWindow):
         elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.ControlModifier:
             self.decrease_opacity()
         elif key == Qt.Key.Key_Up:
-            show_previous_current_file_line(self) # Actualizado para el archivo activo
+            show_previous_current_file_line(self) # Updated for active file
         elif key == Qt.Key.Key_Down:
-            show_next_current_file_line(self) # Actualizado para el archivo activo
+            show_next_current_file_line(self) # Updated for active file
 
     def increase_opacity(self):
         self.opacity = min(1.0, self.opacity + 0.1)
