@@ -98,6 +98,12 @@ def void_line(app, event=None):
                         f.write('')
                     print(f"Archivo creado: {os.path.basename(app.current_file_path)}")
                 
+                # Update txt_files and current_file_index
+                if new_file_full_path not in app.txt_files:
+                    app.txt_files.append(new_file_full_path)
+                    app.txt_files.sort()
+                app.current_file_index = app.txt_files.index(new_file_full_path)
+                
                 print(f"Cambiado al archivo: {os.path.basename(app.current_file_path)}")
                 # Resetear el estado de navegación para el nuevo archivo
                 app.current_active_line = None
@@ -156,6 +162,7 @@ def void_line(app, event=None):
                     os.remove(app.current_file_path)
                     print(f"Archivo {os.path.basename(app.current_file_path)} vacío y eliminado.")
                     app.current_file_path = app.void_file_path # Volver a 0.txt
+                    app.current_file_index = app.txt_files.index(app.current_file_path)
                     print(f"Regresando al archivo: {os.path.basename(app.current_file_path)}")
 
             app.current_active_line = None
@@ -263,6 +270,7 @@ def void_line(app, event=None):
                 os.remove(app.current_file_path)
                 print(f"Archivo {os.path.basename(app.current_file_path)} vacío y eliminado.")
                 app.current_file_path = app.void_file_path # Volver a 0.txt
+                app.current_file_index = app.txt_files.index(app.current_file_path)
                 print(f"Regresando al archivo: {os.path.basename(app.current_file_path)}")
 
             app.current_active_line = None

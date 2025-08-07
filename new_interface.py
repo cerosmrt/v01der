@@ -90,8 +90,9 @@ class FullscreenCircleApp(QMainWindow):
         self.opacity = 1.0
         self.read_dir = read_dir
         self.void_dir = void_dir
-        # Store the file to open (either provided or will be set to 0.txt in setup_file_handling)
         self.file_to_open = file_to_open
+        self.txt_files = []  # List to store .txt files in the directory
+        self.current_file_index = 0  # Index of the current file in txt_files
         
         self.setWindowTitle("Voider")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
@@ -140,11 +141,61 @@ class FullscreenCircleApp(QMainWindow):
         print(f"void_file_path (0.txt): {self.void_file_path}")
         print(f"current_file_path (active file): {self.current_file_path}")
         
+        # Scan the directory for .txt files
+        self.scan_txt_files()
+        
         self.current_active_line = None 
         self.current_active_line_index = None 
         self.last_inserted_index = None 
         setup_file_handling(self)  # This will ensure the file exists
         setup_controls(self)
+
+    def scan_txt_files(self):
+        """Scans the directory of the current file for .txt files and stores them in txt_files."""
+        dir_path = os.path.dirname(self.current_file_path)
+        self.txt_files = [
+            os.path.join(dir_path, f) for f in os.listdir(dir_path)
+            if f.lower().endswith('.txt') and os.path.isfile(os.path.join(dir_path, f))
+        ]
+        self.txt_files.sort()  # Sort alphabetically for consistent navigation
+        if self.current_file_path in self.txt_files:
+            self.current_file_index = self.txt_files.index(self.current_file_path)
+        else:
+            self.txt_files.append(self.current_file_path)
+            self.txt_files.sort()
+            self.current_file_index = self.txt_files.index(self.current_file_path)
+        print(f"Found {len(self.txt_files)} .txt files in {dir_path}: {self.txt_files}")
+
+    def switch_to_file(self, file_path):
+        """Switches the active file to the specified file_path and resets state."""
+        if not os.path.exists(file_path):
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write('')
+            print(f"Created file: {file_path}")
+        
+        self.current_file_path = file_path
+        self.current_file_index = self.txt_files.index(file_path)
+        self.current_active_line = None
+        self.current_active_line_index = None
+        self.last_inserted_index = None
+        self.entry.clear()
+        print(f"Switched to file: {os.path.basename(file_path)}, Index: {self.current_file_index}")
+
+    def show_previous_file(self):
+        """Switches to the previous .txt file in the list."""
+        if not self.txt_files:
+            print("No .txt files available to navigate.")
+            return
+        self.current_file_index = (self.current_file_index - 1) % len(self.txt_files)
+        self.switch_to_file(self.txt_files[self.current_file_index])
+
+    def show_next_file(self):
+        """Switches to the next .txt file in the list."""
+        if not self.txt_files:
+            print("No .txt files available to navigate.")
+            return
+        self.current_file_index = (self.current_file_index + 1) % len(self.txt_files)
+        self.switch_to_file(self.txt_files[self.current_file_index])
 
     def init_ui(self):
         print("Initializing UI")
@@ -189,6 +240,10 @@ class FullscreenCircleApp(QMainWindow):
             self.increase_opacity()
         elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.ControlModifier:
             self.decrease_opacity()
+        elif key == Qt.Key.Key_Up and modifiers == Qt.KeyboardModifier.AltModifier:
+            self.show_previous_file()
+        elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.AltModifier:
+            self.show_next_file()
         elif key == Qt.Key.Key_Up:
             show_previous_current_file_line(self) # Updated for active file
         elif key == Qt.Key.Key_Down:
