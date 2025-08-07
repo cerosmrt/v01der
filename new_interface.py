@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QLineEdit, QLabel, QWidge
 from PyQt6.QtGui import QColor, QPainter, QFont, QCursor, QPen, QPixmap, QImage
 from PyQt6.QtCore import Qt, QTimer
 from files import setup_file_handling, void_line
-from controls import setup_controls, show_random_line_from_current_file, show_previous_current_file_line, show_next_current_file_line 
+from controls import setup_controls, show_random_line_from_current_file, show_previous_current_file_line, show_next_current_file_line, show_random_line_from_random_file
 from noise_controls import NoiseController
 
 class CustomLineEdit(QLineEdit):
@@ -19,14 +19,24 @@ class CustomLineEdit(QLineEdit):
         modifiers = event.modifiers()
         
         if key == Qt.Key.Key_0:
-            # If no slash in the current QLineEdit text, trigger shuffle
+            # Trigger random line from a random file
             if '/' not in self.text(): 
-                print("Key 0 detected in QLineEdit without slash, executing show_random_line_from_current_file") 
+                print("Key 0 detected in QLineEdit without slash, executing show_random_line_from_random_file") 
                 self.parent.last_inserted_index = None 
-                show_random_line_from_current_file(self.parent, event)
+                show_random_line_from_random_file(self.parent, event)
                 event.accept() # Consume the event so '0' isn't written
             else:
                 # If there's a slash, allow '0' to be written normally
+                super().keyPressEvent(event) 
+        elif key == Qt.Key.Key_Period:
+            # Trigger random line from the current file
+            if '/' not in self.text(): 
+                print("Key . detected in QLineEdit without slash, executing show_random_line_from_current_file") 
+                self.parent.last_inserted_index = None 
+                show_random_line_from_current_file(self.parent, event)
+                event.accept() # Consume the event so '.' isn't written
+            else:
+                # If there's a slash, allow '.' to be written normally
                 super().keyPressEvent(event) 
         elif (key == Qt.Key.Key_Up or key == Qt.Key.Key_Down) and modifiers == Qt.KeyboardModifier.ControlModifier:
             self.parent.keyPressEvent(event)
