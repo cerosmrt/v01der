@@ -89,7 +89,7 @@ def show_random_line_from_random_file(app, event=None):
         app.entry.clear()
 
 def show_previous_current_file_line(app, event=None):
-    """Muestra la línea anterior en el archivo activo, con lógica especial para la primera pulsación."""
+    """Muestra la línea anterior en el archivo activo, con lógica especial para la primera pulsación y navegación circular."""
     try:
         if os.path.exists(app.current_file_path):
             with open(app.current_file_path, 'r', encoding='utf-8') as f:
@@ -113,21 +113,47 @@ def show_previous_current_file_line(app, event=None):
                     print(f"Primera flecha arriba: Mostrando última línea enviada: {app.current_active_line}")
                     return
             
-            # Normal navigation: Find previous non-empty line
+            # Normal navigation: Find previous non-empty line with looping
             current_index = app.current_active_line_index if app.current_active_line_index is not None else len(lines)
             new_index = current_index - 1
             
+            # If at start, loop to last non-empty line
+            if new_index < 0:
+                new_index = len(lines) - 1
+                while new_index >= 0:
+                    if lines[new_index].strip():
+                        app.current_active_line_index = new_index
+                        app.current_active_line = lines[new_index].strip()
+                        app.entry.setText(app.current_active_line)
+                        app.first_up_after_submission = False
+                        print(f"Loop a última línea: {app.current_active_line}")
+                        return
+                    new_index -= 1
+            
+            # Find previous non-empty line
             while new_index >= 0:
                 if lines[new_index].strip():
                     app.current_active_line_index = new_index
                     app.current_active_line = lines[new_index].strip()
                     app.entry.setText(app.current_active_line)
-                    app.first_up_after_submission = False  # Ensure normal navigation continues
+                    app.first_up_after_submission = False
                     print(f"Línea anterior mostrada: {app.current_active_line}")
                     return
                 new_index -= 1
             
-            print("No hay líneas anteriores no vacías.")
+            # If no previous non-empty line, loop to last non-empty line
+            new_index = len(lines) - 1
+            while new_index >= 0:
+                if lines[new_index].strip():
+                    app.current_active_line_index = new_index
+                    app.current_active_line = lines[new_index].strip()
+                    app.entry.setText(app.current_active_line)
+                    app.first_up_after_submission = False
+                    print(f"Loop a última línea: {app.current_active_line}")
+                    return
+                new_index -= 1
+            
+            print("No hay líneas no vacías en el archivo.")
             app.current_active_line = None
             app.current_active_line_index = None
             app.first_up_after_submission = False
@@ -146,7 +172,7 @@ def show_previous_current_file_line(app, event=None):
         app.entry.clear()
 
 def show_next_current_file_line(app, event=None):
-    """Muestra la línea siguiente en el archivo activo."""
+    """Muestra la línea siguiente en el archivo activo, con navegación circular."""
     try:
         if os.path.exists(app.current_file_path):
             with open(app.current_file_path, 'r', encoding='utf-8') as f:
@@ -164,17 +190,43 @@ def show_next_current_file_line(app, event=None):
             current_index = (app.last_inserted_index if hasattr(app, 'last_inserted_index') and app.last_inserted_index is not None else -1) if app.current_active_line_index is None else app.current_active_line_index
             new_index = current_index + 1
             
+            # If past end, loop to first non-empty line
+            if new_index >= len(lines):
+                new_index = 0
+                while new_index < len(lines):
+                    if lines[new_index].strip():
+                        app.current_active_line_index = new_index
+                        app.current_active_line = lines[new_index].strip()
+                        app.entry.setText(app.current_active_line)
+                        app.first_up_after_submission = False
+                        print(f"Loop a primera línea: {app.current_active_line}")
+                        return
+                    new_index += 1
+            
+            # Find next non-empty line
             while new_index < len(lines):
                 if lines[new_index].strip():
                     app.current_active_line_index = new_index
                     app.current_active_line = lines[new_index].strip()
                     app.entry.setText(app.current_active_line)
-                    app.first_up_after_submission = False  # Ensure normal navigation
+                    app.first_up_after_submission = False
                     print(f"Línea siguiente mostrada: {app.current_active_line}")
                     return
                 new_index += 1
             
-            print("No hay líneas siguientes no vacías.")
+            # If no next non-empty line, loop to first non-empty line
+            new_index = 0
+            while new_index < len(lines):
+                if lines[new_index].strip():
+                    app.current_active_line_index = new_index
+                    app.current_active_line = lines[new_index].strip()
+                    app.entry.setText(app.current_active_line)
+                    app.first_up_after_submission = False
+                    print(f"Loop a primera línea: {app.current_active_line}")
+                    return
+                new_index += 1
+            
+            print("No hay líneas no vacías en el archivo.")
             app.current_active_line = None
             app.current_active_line_index = None
             app.first_up_after_submission = False
