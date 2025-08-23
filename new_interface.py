@@ -18,30 +18,25 @@ class CustomLineEdit(QLineEdit):
         key = event.key()
         modifiers = event.modifiers()
         
-        if key == Qt.Key.Key_0:
+        if key == Qt.Key.Key_0 and (modifiers & Qt.KeyboardModifier.ControlModifier):
             # Trigger random line from a random file
-            if '/' not in self.text(): 
-                print("Key 0 detected in QLineEdit without slash, executing show_random_line_from_random_file") 
-                self.parent.last_inserted_index = None 
-                show_random_line_from_random_file(self.parent, event)
-                event.accept() # Consume the event so '0' isn't written
-            else:
-                # If there's a slash, allow '0' to be written normally
-                super().keyPressEvent(event) 
-        elif key == Qt.Key.Key_Period:
+            print("Control+0 detected, executing show_random_line_from_random_file") 
+            self.parent.last_inserted_index = None 
+            show_random_line_from_random_file(self.parent, event)
+            event.accept()  # Consume the event so '0' isn't escrito
+            
+        elif key == Qt.Key.Key_Period and (modifiers & Qt.KeyboardModifier.ControlModifier):
             # Trigger random line from the current file
-            if '/' not in self.text(): 
-                print("Key . detected in QLineEdit without slash, executing show_random_line_from_current_file") 
-                self.parent.last_inserted_index = None 
-                show_random_line_from_current_file(self.parent, event)
-                event.accept() # Consume the event so '.' isn't written
-            else:
-                # If there's a slash, allow '.' to be written normally
-                super().keyPressEvent(event) 
-        elif (key == Qt.Key.Key_Up or key == Qt.Key.Key_Down) and modifiers == Qt.KeyboardModifier.ControlModifier:
+            print("Control+. detected, executing show_random_line_from_current_file") 
+            self.parent.last_inserted_index = None 
+            show_random_line_from_current_file(self.parent, event)
+            event.accept()  # Consume the event so '.' isn't escrito
+            
+        elif (key == Qt.Key.Key_Up or key == Qt.Key.Key_Down) and (modifiers & Qt.KeyboardModifier.ControlModifier):
             self.parent.keyPressEvent(event)
         else:
             super().keyPressEvent(event)
+
 
 class CircleBackground(QWidget):
     def __init__(self, parent=None, center_x=0, center_y=0, radius=0):
