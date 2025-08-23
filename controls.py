@@ -37,11 +37,13 @@ def show_random_line_from_current_file(app, event=None):
                             app.current_active_line_index = i
                             break
                 app.entry.setText(random_line)
+                app.entry.setCursorPosition(0)
                 app.first_up_after_submission = False  # Reset navigation state
                 print(f"Línea aleatoria mostrada del archivo activo: {random_line}")
             else:
                 print(f"Solo hay una línea disponible en {os.path.basename(app.current_file_path)}.")
                 app.entry.setText(lines[0])  # Fallback to the only line
+                app.entry.setCursorPosition(0)
                 app.current_active_line = lines[0]
                 app.current_active_line_index = lines.index(lines[0])
                 app.first_up_after_submission = False
@@ -87,6 +89,7 @@ def show_random_line_from_random_file(app, event=None):
                         app.current_active_line_index = i
                         break
             app.entry.setText(random_line)
+            app.entry.setCursorPosition(0)
             app.first_up_after_submission = False  # Reset navigation state
             print(f"Línea aleatoria mostrada del archivo {os.path.basename(random_file)}: {random_line}")
         else:
@@ -123,6 +126,7 @@ def show_previous_current_file_line(app, event=None):
                     app.current_active_line = lines[app.last_inserted_index].strip()
                     app.current_active_line_index = app.last_inserted_index  # Set index for next navigation
                     app.entry.setText(app.current_active_line)
+                    app.entry.setCursorPosition(0)
                     app.first_up_after_submission = False  # Allow normal navigation next time
                     print(f"Primera flecha arriba: Mostrando última línea enviada: {app.current_active_line}")
                     return
@@ -139,6 +143,7 @@ def show_previous_current_file_line(app, event=None):
                         app.current_active_line_index = new_index
                         app.current_active_line = lines[new_index].strip()
                         app.entry.setText(app.current_active_line)
+                        app.entry.setCursorPosition(0)
                         app.first_up_after_submission = False
                         print(f"Loop a última línea: {app.current_active_line}")
                         return
@@ -150,6 +155,7 @@ def show_previous_current_file_line(app, event=None):
                     app.current_active_line_index = new_index
                     app.current_active_line = lines[new_index].strip()
                     app.entry.setText(app.current_active_line)
+                    app.entry.setCursorPosition(0)
                     app.first_up_after_submission = False
                     print(f"Línea anterior mostrada: {app.current_active_line}")
                     return
@@ -162,6 +168,7 @@ def show_previous_current_file_line(app, event=None):
                     app.current_active_line_index = new_index
                     app.current_active_line = lines[new_index].strip()
                     app.entry.setText(app.current_active_line)
+                    app.entry.setCursorPosition(0)
                     app.first_up_after_submission = False
                     print(f"Loop a última línea: {app.current_active_line}")
                     return
@@ -212,6 +219,7 @@ def show_next_current_file_line(app, event=None):
                         app.current_active_line_index = new_index
                         app.current_active_line = lines[new_index].strip()
                         app.entry.setText(app.current_active_line)
+                        app.entry.setCursorPosition(0)
                         app.first_up_after_submission = False
                         print(f"Loop a primera línea: {app.current_active_line}")
                         return
@@ -223,6 +231,7 @@ def show_next_current_file_line(app, event=None):
                     app.current_active_line_index = new_index
                     app.current_active_line = lines[new_index].strip()
                     app.entry.setText(app.current_active_line)
+                    app.entry.setCursorPosition(0)
                     app.first_up_after_submission = False
                     print(f"Línea siguiente mostrada: {app.current_active_line}")
                     return
@@ -235,6 +244,7 @@ def show_next_current_file_line(app, event=None):
                     app.current_active_line_index = new_index
                     app.current_active_line = lines[new_index].strip()
                     app.entry.setText(app.current_active_line)
+                    app.entry.setCursorPosition(0)
                     app.first_up_after_submission = False
                     print(f"Loop a primera línea: {app.current_active_line}")
                     return
