@@ -285,11 +285,13 @@ def show_random_line_from_current_file(app, event=None):
                             app.current_active_line_index = i
                             break
                 app.entry.setText(random_line)
+                app.entry.setCursorPosition(0)
                 app.first_up_after_submission = False  # Reset navigation state
                 print(f"Línea aleatoria mostrada del archivo activo: {random_line}")
             else:
                 print(f"Solo hay una línea disponible en {os.path.basename(app.current_file_path)}.")
                 app.entry.setText(lines[0])  # Fallback to the only line
+                app.entry.setCursorPosition(0)
                 app.current_active_line = lines[0]
                 app.current_active_line_index = lines.index(lines[0])
                 app.first_up_after_submission = False
@@ -335,6 +337,7 @@ def show_random_line_from_random_file(app, event=None):
                         app.current_active_line_index = i
                         break
             app.entry.setText(random_line)
+            app.entry.setCursorPosition(0)
             app.first_up_after_submission = False  # Reset navigation state
             print(f"Línea aleatoria mostrada del archivo {os.path.basename(random_file)}: {random_line}")
         else:
@@ -371,6 +374,7 @@ def show_previous_current_file_line(app, event=None):
                     app.current_active_line = lines[app.last_inserted_index].strip()
                     app.current_active_line_index = app.last_inserted_index  # Set index for next navigation
                     app.entry.setText(app.current_active_line)
+                    app.entry.setCursorPosition(0)
                     app.first_up_after_submission = False  # Allow normal navigation next time
                     print(f"Primera flecha arriba: Mostrando última línea enviada: {app.current_active_line}")
                     return
@@ -387,6 +391,7 @@ def show_previous_current_file_line(app, event=None):
                         app.current_active_line_index = new_index
                         app.current_active_line = lines[new_index].strip()
                         app.entry.setText(app.current_active_line)
+                        app.entry.setCursorPosition(0)
                         app.first_up_after_submission = False
                         print(f"Loop a última línea: {app.current_active_line}")
                         return
@@ -398,6 +403,7 @@ def show_previous_current_file_line(app, event=None):
                     app.current_active_line_index = new_index
                     app.current_active_line = lines[new_index].strip()
                     app.entry.setText(app.current_active_line)
+                    app.entry.setCursorPosition(0)
                     app.first_up_after_submission = False
                     print(f"Línea anterior mostrada: {app.current_active_line}")
                     return
@@ -410,6 +416,7 @@ def show_previous_current_file_line(app, event=None):
                     app.current_active_line_index = new_index
                     app.current_active_line = lines[new_index].strip()
                     app.entry.setText(app.current_active_line)
+                    app.entry.setCursorPosition(0)
                     app.first_up_after_submission = False
                     print(f"Loop a última línea: {app.current_active_line}")
                     return
@@ -460,6 +467,7 @@ def show_next_current_file_line(app, event=None):
                         app.current_active_line_index = new_index
                         app.current_active_line = lines[new_index].strip()
                         app.entry.setText(app.current_active_line)
+                        app.entry.setCursorPosition(0)
                         app.first_up_after_submission = False
                         print(f"Loop a primera línea: {app.current_active_line}")
                         return
@@ -471,6 +479,7 @@ def show_next_current_file_line(app, event=None):
                     app.current_active_line_index = new_index
                     app.current_active_line = lines[new_index].strip()
                     app.entry.setText(app.current_active_line)
+                    app.entry.setCursorPosition(0)
                     app.first_up_after_submission = False
                     print(f"Línea siguiente mostrada: {app.current_active_line}")
                     return
@@ -483,6 +492,7 @@ def show_next_current_file_line(app, event=None):
                     app.current_active_line_index = new_index
                     app.current_active_line = lines[new_index].strip()
                     app.entry.setText(app.current_active_line)
+                    app.entry.setCursorPosition(0)
                     app.first_up_after_submission = False
                     print(f"Loop a primera línea: {app.current_active_line}")
                     return
@@ -872,30 +882,25 @@ class CustomLineEdit(QLineEdit):
         key = event.key()
         modifiers = event.modifiers()
         
-        if key == Qt.Key.Key_0:
+        if key == Qt.Key.Key_0 and (modifiers & Qt.KeyboardModifier.ControlModifier):
             # Trigger random line from a random file
-            if '/' not in self.text(): 
-                print("Key 0 detected in QLineEdit without slash, executing show_random_line_from_random_file") 
-                self.parent.last_inserted_index = None 
-                show_random_line_from_random_file(self.parent, event)
-                event.accept() # Consume the event so '0' isn't written
-            else:
-                # If there's a slash, allow '0' to be written normally
-                super().keyPressEvent(event) 
-        elif key == Qt.Key.Key_Period:
+            print("Control+0 detected, executing show_random_line_from_random_file") 
+            self.parent.last_inserted_index = None 
+            show_random_line_from_random_file(self.parent, event)
+            event.accept()  # Consume the event so '0' isn't escrito
+            
+        elif key == Qt.Key.Key_Period and (modifiers & Qt.KeyboardModifier.ControlModifier):
             # Trigger random line from the current file
-            if '/' not in self.text(): 
-                print("Key . detected in QLineEdit without slash, executing show_random_line_from_current_file") 
-                self.parent.last_inserted_index = None 
-                show_random_line_from_current_file(self.parent, event)
-                event.accept() # Consume the event so '.' isn't written
-            else:
-                # If there's a slash, allow '.' to be written normally
-                super().keyPressEvent(event) 
-        elif (key == Qt.Key.Key_Up or key == Qt.Key.Key_Down) and modifiers == Qt.KeyboardModifier.ControlModifier:
+            print("Control+. detected, executing show_random_line_from_current_file") 
+            self.parent.last_inserted_index = None 
+            show_random_line_from_current_file(self.parent, event)
+            event.accept()  # Consume the event so '.' isn't escrito
+            
+        elif (key == Qt.Key.Key_Up or key == Qt.Key.Key_Down) and (modifiers & Qt.KeyboardModifier.ControlModifier):
             self.parent.keyPressEvent(event)
         else:
             super().keyPressEvent(event)
+
 
 class CircleBackground(QWidget):
     def __init__(self, parent=None, center_x=0, center_y=0, radius=0):
