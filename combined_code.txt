@@ -862,44 +862,58 @@ def void_line(app, event=None):
         app.entry.setFocus()
 
 # --- new_interface.py ---
-# --- new_interface.py ---
 import os
 import sys
 import numpy as np
 from PyQt6.QtWidgets import QApplication, QMainWindow, QLineEdit, QLabel, QWidget
 from PyQt6.QtGui import QColor, QPainter, QFont, QCursor, QPen, QPixmap, QImage
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+
 from files import setup_file_handling, void_line
 from controls import setup_controls, show_random_line_from_current_file, show_previous_current_file_line, show_next_current_file_line, show_random_line_from_random_file
 from noise_controls import NoiseController
 
 class CustomLineEdit(QLineEdit):
+    spacePressed = pyqtSignal() # Custom signal for Spacebar
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.parent = parent
+        self.parent = parent # Keep reference to parent FullscreenCircleApp
 
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
         
+        # Handle Spacebar for voiding if in Spacebar mode
+        if key == Qt.Key.Key_Space:
+            if self.parent and hasattr(self.parent, 'use_spacebar_for_void') and self.parent.use_spacebar_for_void:
+                self.spacePressed.emit() # Emit custom signal
+                event.accept() # Consume the event so a space character isn't typed
+                return # Exit early to prevent super().keyPressEvent
+            else:
+                # If not in spacebar void mode, let it type a space character
+                super().keyPressEvent(event)
+                return # Exit early
+
+        # Existing Control+0, Control+.
         if key == Qt.Key.Key_0 and (modifiers & Qt.KeyboardModifier.ControlModifier):
-            # Trigger random line from a random file
             print("Control+0 detected, executing show_random_line_from_random_file") 
             self.parent.last_inserted_index = None 
             show_random_line_from_random_file(self.parent, event)
             event.accept()  # Consume the event so '0' isn't escrito
             
         elif key == Qt.Key.Key_Period and (modifiers & Qt.KeyboardModifier.ControlModifier):
-            # Trigger random line from the current file
             print("Control+. detected, executing show_random_line_from_current_file") 
             self.parent.last_inserted_index = None 
             show_random_line_from_current_file(self.parent, event)
             event.accept()  # Consume the event so '.' isn't escrito
             
+        # Existing Control+Up/Down
         elif (key == Qt.Key.Key_Up or key == Qt.Key.Key_Down) and (modifiers & Qt.KeyboardModifier.ControlModifier):
-            self.parent.keyPressEvent(event)
+            self.parent.keyPressEvent(event) # Pass to parent for file navigation
+            
         else:
-            super().keyPressEvent(event)
+            super().keyPressEvent(event) # Default handling for all other keys
 
 
 class CircleBackground(QWidget):
@@ -981,7 +995,13 @@ class FullscreenCircleApp(QMainWindow):
             }
         """) 
         self.entry.setFocus()
-        self.entry.returnPressed.connect(lambda: void_line(self)) 
+        
+        # --- REMOVED: Status Label and its setup ---
+        # self.status_label = QLabel("", self) 
+        # self.status_label.setFont(QFont("Consolas", 9))
+        # self.status_label.setStyleSheet("color: white; background-color: rgba(0,0,0,150); padding: 3px; border-radius: 5px;")
+        # self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # self.status_label.adjustSize() 
 
         self.loading = QLabel("Loading potentiality", self)
         self.loading.setFont(QFont("Consolas", 11))
@@ -997,7 +1017,55 @@ class FullscreenCircleApp(QMainWindow):
         )
 
         self.setup_voider_logic()
-        self.init_ui()
+        
+        # --- NEW: Key Toggle Logic Setup ---
+        self.use_spacebar_for_void = False # Default to Enter key
+        self._print_void_mode_status() # Print initial status to console
+
+        # Store connections for dynamic management
+        self._void_enter_connection = None
+        self._void_space_connection = None
+        self._connect_void_key() # Connect the default key (Enter)
+        # --- END NEW Key Toggle Logic Setup ---
+
+        self.init_ui() # Call init_ui after all widgets are instantiated
+
+    # --- NEW: Key Toggle Helper Methods (modified to use print instead of QLabel) ---
+    def _print_void_mode_status(self):
+        if self.use_spacebar_for_void:
+            print("VOID MODE: Spacebar (Press F2 to switch)")
+        else:
+            print("VOID MODE: Enter (Press F2 to switch)")
+
+    def _connect_void_key(self):
+        self._disconnect_void_key() # Disconnect existing connections first
+
+        if self.use_spacebar_for_void:
+            self._void_space_connection = self.entry.spacePressed.connect(lambda: void_line(self))
+        else:
+            self._void_enter_connection = self.entry.returnPressed.connect(lambda: void_line(self))
+
+    def _disconnect_void_key(self):
+        # Disconnect any currently active connections safely
+        if self._void_enter_connection:
+            try:
+                self.entry.returnPressed.disconnect(self._void_enter_connection)
+            except TypeError:
+                pass # Already disconnected
+            self._void_enter_connection = None
+        if self._void_space_connection:
+            try:
+                self.entry.spacePressed.disconnect(self._void_space_connection)
+            except TypeError:
+                pass # Already disconnected
+            self._void_space_connection = None
+
+    def toggle_void_key_mode(self):
+        self.use_spacebar_for_void = not self.use_spacebar_for_void
+        self._print_void_mode_status() # Print status to console
+        self._connect_void_key() # Update connections based on new mode
+        self.entry.setFocus() # Ensure focus remains on the entry field
+    # --- END NEW Key Toggle Helper Methods ---
 
     def setup_voider_logic(self):
         # Set the current file path based on file_to_open
@@ -1074,9 +1142,16 @@ class FullscreenCircleApp(QMainWindow):
         self.center_y = screen.height() // 2
         self.radius = min(screen.width(), screen.height()) // 2 - 35 
         entry_width = self.radius * 2 - 40
+        
         self.entry.setFixedWidth(entry_width)
+        # Position entry in the center
         self.entry.move(self.center_x - entry_width // 2,
                         self.center_y - self.entry.height() // 2)
+
+        # --- REMOVED: Status label positioning ---
+        # self.status_label.move(self.center_x - self.status_label.width() // 2,
+        #                        self.entry.y() - self.status_label.height() - 10) 
+
         self.loading.move(self.center_x - 150, self.center_y - 50)
         self.loading.show()
         QTimer.singleShot(1500, self.loading.deleteLater) 
@@ -1096,11 +1171,33 @@ class FullscreenCircleApp(QMainWindow):
             self.noise_overlay.resize(self.size()) 
         if hasattr(self, 'circle_background'):
             self.circle_background.resize(self.size())
+        
+        # Reposition entry on resize
+        if hasattr(self, 'entry'):
+            screen = self.screen().availableGeometry()
+            self.center_x = screen.width() // 2
+            self.center_y = screen.height() // 2
+            self.radius = min(screen.width(), screen.height()) // 2 - 35 
+            entry_width = self.radius * 2 - 40
+            self.entry.setFixedWidth(entry_width)
+            self.entry.move(self.center_x - entry_width // 2,
+                            self.center_y - self.entry.height() // 2)
+            # --- REMOVED: Status label repositioning ---
+            # if hasattr(self, 'status_label'):
+            #     self.status_label.move(self.center_x - self.status_label.width() // 2,
+            #                            self.entry.y() - self.status_label.height() - 10)
+
 
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
-        print(f"Key in window: {key}, Modifiers: {modifiers}")
+        # print(f"Key in window: {key}, Modifiers: {modifiers}") # Debugging line
+
+        # Handle F2 for toggling void key mode
+        if key == Qt.Key.Key_F2:
+            self.toggle_void_key_mode()
+            event.accept() # Consume the F2 event
+            return # Exit early to prevent other handlers from firing
 
         if key == Qt.Key.Key_Escape:
             self.noise_controller.stop()
@@ -1125,6 +1222,28 @@ class FullscreenCircleApp(QMainWindow):
     def decrease_opacity(self):
         self.opacity = max(0.0, self.opacity - 0.1)
         self.setWindowOpacity(self.opacity)
+
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    
+    # Define directories for file handling
+    read_directory = 'read_potential' 
+    void_directory = 'void_potential'
+    
+    # Ensure directories exist
+    os.makedirs(read_directory, exist_ok=True)
+    os.makedirs(void_directory, exist_ok=True)
+    
+    # Example usage:
+    # To open a specific file on startup:
+    # file_to_start_with = os.path.join(read_directory, 'example.txt')
+    # window = FullscreenCircleApp(read_dir=read_directory, void_dir=void_directory, file_to_open=file_to_start_with)
+    
+    # To open the default file (0.txt in void_potential if no file_to_open)
+    window = FullscreenCircleApp(read_dir=read_directory, void_dir=void_directory)
+    
+    sys.exit(app.exec())
 
 # --- noise_controls.py ---
 # --- noise_controls.py ---
