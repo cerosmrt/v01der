@@ -7,10 +7,11 @@ class CircularView(QWidget):
         super().__init__(parent)
         self.ring = ring
         self._offset = 0.0
-        self.line_height = 38          # ajusta según tu fuente
-        self.visible_count = 9         # impares → centro limpio
+        self.line_height = 38
+        self.visible_count = 9
         self.max_alpha = 1.0
         self.min_alpha = 0.15
+        self.current_animation = None  # Guardar referencia a la animación
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
 
     @pyqtProperty(float)
@@ -23,17 +24,29 @@ class CircularView(QWidget):
         self.update()
 
     def animate_move(self, delta):
+        """
+        Anima el movimiento del scroll.
+        delta: +1 para bajar (siguiente línea), -1 para subir (línea anterior)
+        """
+        # Si ya hay una animación corriendo, ignorar
+        if self.current_animation and self.current_animation.state() == QPropertyAnimation.State.Running:
+            return
+        
         anim = QPropertyAnimation(self, b"offset")
         anim.setDuration(220)
         anim.setEasingCurve(QEasingCurve.Type.OutQuad)
         anim.setStartValue(self._offset)
-        anim.setEndValue(self._offset - delta)  # -delta → sube al mover "abajo"
-        anim.finished.connect(lambda: [
-            self.ring.move(delta),
-            setattr(self, '_offset', 0.0),
+        anim.setEndValue(self._offset - delta)  # -delta para invertir dirección visual
+        
+        def on_finished():
+            self.ring.move(delta)
+            self._offset = 0.0
             self.update()
-        ])
+            self.current_animation = None
+        
+        anim.finished.connect(on_finished)
         anim.start()
+        self.current_animation = anim  # Guardar referencia
 
     def paintEvent(self, event):
         painter = QPainter(self)
