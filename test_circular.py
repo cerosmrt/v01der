@@ -16,7 +16,7 @@ class MainWindow(QMainWindow):
         self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
         self.setStyleSheet("background: black; color: white;")
 
-        # Cargar archivo 0.txt - probar múltiples rutas posibles
+        # Cargar archivo 0.txt
         possible_paths = [
             os.path.join("void_potential", "0.txt"),
             os.path.join("void", "0.txt"),
@@ -26,63 +26,78 @@ class MainWindow(QMainWindow):
         ]
         
         lines = None
-        file_path = None
+        self.file_path = None
         
         for path in possible_paths:
             if os.path.exists(path):
                 try:
                     with open(path, encoding="utf-8") as f:
                         lines = [l.strip() for l in f if l.strip()]
-                    file_path = path
+                    self.file_path = path
                     print(f"✅ Archivo cargado: {path}")
                     break
                 except Exception as e:
                     print(f"❌ Error leyendo {path}: {e}")
         
-        # Si no se encontró ningún archivo, usar líneas de ejemplo
         if lines is None or not lines:
             lines = [
                 "Bienvenido a Circular View",
-                "No se encontró 0.txt",
-                "Estas son líneas de ejemplo",
-                "Usá ↑ y ↓ para navegar",
+                "Presiona Enter para editar",
+                "Usa ↑ y ↓ para navegar",
                 "ESC para salir",
-                "Creá void_potential/0.txt para ver tu contenido",
-                "O void/0.txt también funciona",
-                "El scroll es suave y circular",
-                "Las líneas se repiten infinitamente"
+                "Las ediciones se guardan automáticamente"
             ]
-            print(f"⚠️ Usando líneas de ejemplo. Creá uno de estos archivos:")
-            for path in possible_paths[:3]:
-                print(f"   - {path}")
+            print(f"⚠️ Usando líneas de ejemplo")
 
         # Crear ring y vista
         self.ring = LineRing(lines)
         self.view = CircularView(self.ring, self)
         
-        # Configurar fuente
         font = QFont("Consolas", 11)
         self.view.setFont(font)
         
         self.setCentralWidget(self.view)
-        
-        # Fullscreen
         self.showFullScreen()
 
     def keyPressEvent(self, event):
-        """Captura las teclas de navegación"""
+        """Captura las teclas de navegación y edición"""
         key = event.key()
         
-        if key == Qt.Key.Key_Up:
-            self.view.animate_move(-1)  # Scroll hacia arriba (línea anterior)
-            event.accept()
-        elif key == Qt.Key.Key_Down:
-            self.view.animate_move(1)   # Scroll hacia abajo (línea siguiente)
-            event.accept()
-        elif key == Qt.Key.Key_Escape:
-            self.close()
+        if self.view.edit_mode:
+            # En modo edición, solo ESC sale
+            if key == Qt.Key.Key_Escape:
+                self.view.cancel_edit()
+                event.accept()
+            else:
+                # Dejar que el editor maneje el resto
+                super().keyPressEvent(event)
         else:
-            super().keyPressEvent(event)
+            # En modo scroll
+            if key == Qt.Key.Key_Up:
+                self.view.animate_move(-1)
+                event.accept()
+            elif key == Qt.Key.Key_Down:
+                self.view.animate_move(1)
+                event.accept()
+            elif key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
+                self.view.enter_edit_mode()
+                event.accept()
+            elif key == Qt.Key.Key_Escape:
+                self.save_and_exit()
+            else:
+                super().keyPressEvent(event)
+
+    def save_and_exit(self):
+        """Guardar cambios y salir"""
+        if self.file_path:
+            try:
+                with open(self.file_path, 'w', encoding='utf-8') as f:
+                    for line in self.ring.lines:
+                        f.write(line + '\n')
+                print(f"✅ Cambios guardados en {self.file_path}")
+            except Exception as e:
+                print(f"❌ Error guardando: {e}")
+        self.close()
 
 
 if __name__ == "__main__":
