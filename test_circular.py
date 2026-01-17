@@ -53,24 +53,35 @@ class MainWindow(QMainWindow):
         self.ring = LineRing(lines)
         self.view = CircularView(self.ring, self)
         
+        # Conectar señal de guardado automático
+        self.view.line_saved.connect(self.auto_save)
+        
         font = QFont("Consolas", 11)
         self.view.setFont(font)
         
         self.setCentralWidget(self.view)
         self.showFullScreen()
 
+    def auto_save(self):
+        """Guarda automáticamente después de cada edición"""
+        if self.file_path:
+            try:
+                with open(self.file_path, 'w', encoding='utf-8') as f:
+                    for line in self.ring.lines:
+                        f.write(line + '\n')
+                print(f"💾 Auto-guardado en {self.file_path}")
+            except Exception as e:
+                print(f"❌ Error en auto-guardado: {e}")
+
     def keyPressEvent(self, event):
         """Captura las teclas de navegación y edición"""
         key = event.key()
         
         if self.view.edit_mode:
-            # En modo edición, solo ESC sale
+            # En modo edición, ESC cancela (Enter lo maneja el editor)
             if key == Qt.Key.Key_Escape:
                 self.view.cancel_edit()
                 event.accept()
-            else:
-                # Dejar que el editor maneje el resto
-                super().keyPressEvent(event)
         else:
             # En modo scroll
             if key == Qt.Key.Key_Up:
@@ -84,19 +95,10 @@ class MainWindow(QMainWindow):
                 event.accept()
             elif key == Qt.Key.Key_Escape:
                 self.save_and_exit()
-            else:
-                super().keyPressEvent(event)
 
     def save_and_exit(self):
-        """Guardar cambios y salir"""
-        if self.file_path:
-            try:
-                with open(self.file_path, 'w', encoding='utf-8') as f:
-                    for line in self.ring.lines:
-                        f.write(line + '\n')
-                print(f"✅ Cambios guardados en {self.file_path}")
-            except Exception as e:
-                print(f"❌ Error guardando: {e}")
+        """Guardar cambios y salir (por si acaso, aunque ya hay auto-save)"""
+        self.auto_save()  # Un último save antes de salir
         self.close()
 
 

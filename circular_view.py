@@ -1,8 +1,11 @@
 from PyQt6.QtWidgets import QWidget, QLineEdit
-from PyQt6.QtCore import Qt, QPropertyAnimation, pyqtProperty, QEasingCurve
+from PyQt6.QtCore import Qt, QPropertyAnimation, pyqtProperty, QEasingCurve, pyqtSignal
 from PyQt6.QtGui import QPainter, QFontMetrics, QFont, QKeyEvent
 
 class CircularView(QWidget):
+    # Nueva señal para notificar que se guardó una línea
+    line_saved = pyqtSignal()
+    
     def __init__(self, ring, parent=None):
         super().__init__(parent)
         self.ring = ring
@@ -15,7 +18,7 @@ class CircularView(QWidget):
         self.edit_mode = False
         
         # Crear el editor (invisible por defecto)
-        self.editor = CustomLineEdit(self)  # Usar CustomLineEdit
+        self.editor = CustomLineEdit(self)
         self.editor.setFont(QFont("Consolas", 11))
         self.editor.setStyleSheet("""
             QLineEdit {
@@ -88,23 +91,26 @@ class CircularView(QWidget):
 
     def save_edit(self):
         """Guarda la edición y vuelve a modo scroll"""
-        print("🔵 save_edit llamado")  # Debug
+        print("🔵 save_edit llamado")
         new_text = self.editor.text().strip()
         
         if new_text:
             self.ring.lines[self.ring.index] = new_text
             print(f"✅ Línea actualizada: {new_text}")
+            
+            # Emitir señal para que el parent guarde el archivo
+            self.line_saved.emit()
         
         self.exit_edit_mode()
 
     def cancel_edit(self):
         """Cancela la edición sin guardar"""
-        print("🔴 Edición cancelada")  # Debug
+        print("🔴 Edición cancelada")
         self.exit_edit_mode()
 
     def exit_edit_mode(self):
         """Sale del modo edición"""
-        print("🟢 Saliendo de modo edición")  # Debug
+        print("🟢 Saliendo de modo edición")
         self.edit_mode = False
         self.editor.hide()
         self.setFocus()
@@ -158,7 +164,7 @@ class CustomLineEdit(QLineEdit):
     """QLineEdit personalizado que maneja Enter correctamente"""
     def keyPressEvent(self, event):
         if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            print("🔑 Enter detectado en CustomLineEdit")  # Debug
+            print("🔑 Enter detectado en CustomLineEdit")
             self.returnPressed.emit()
             event.accept()
         else:
