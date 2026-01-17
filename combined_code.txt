@@ -216,6 +216,199 @@ def main():
 if __name__ == "__main__":
     main()
 
+# --- circular_view.py ---
+import math
+from PyQt6.QtWidgets import QWidget, QLineEdit
+from PyQt6.QtCore import Qt, QPropertyAnimation, pyqtProperty, QEasingCurve, pyqtSignal
+from PyQt6.QtGui import QPainter, QFontMetrics, QFont, QKeyEvent
+
+class CircularView(QWidget):
+    line_saved = pyqtSignal()
+    
+    def __init__(self, ring, parent=None):
+        super().__init__(parent)
+        self.ring = ring
+        self._offset = 0.0
+        self.line_height = 38
+        
+        self.max_alpha = 1.0
+        self.min_alpha = 0.0
+        
+        self.circle_radius = 0
+        self.current_animation = None
+        self.edit_mode = False
+        
+        # Crear el editor
+        self.editor = CustomLineEdit(self)
+        self.editor.setFont(QFont("Consolas", 11))
+        self.editor.setStyleSheet("""
+            QLineEdit {
+                background-color: black;
+                color: white;
+                border: none;
+                qproperty-alignment: AlignCenter;
+                selection-background-color: white;
+                selection-color: black;
+            }
+        """)
+        self.editor.hide()
+        self.editor.returnPressed.connect(self.save_edit)
+        
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, False)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+
+    @pyqtProperty(float)
+    def offset(self):
+        return self._offset
+
+    @offset.setter
+    def offset(self, value):
+        self._offset = value
+        self.update()
+
+    def animate_move(self, delta):
+        if self.edit_mode:
+            return
+            
+        if self.current_animation and self.current_animation.state() == QPropertyAnimation.State.Running:
+            return
+        
+        anim = QPropertyAnimation(self, b"offset")
+        anim.setDuration(220)
+        anim.setEasingCurve(QEasingCurve.Type.OutQuad)
+        anim.setStartValue(self._offset)
+        anim.setEndValue(self._offset - delta)
+        
+        def on_finished():
+            self.ring.move(delta)
+            self._offset = 0.0
+            self.update()
+            self.current_animation = None
+        
+        anim.finished.connect(on_finished)
+        anim.start()
+        self.current_animation = anim
+
+    def enter_edit_mode(self):
+        self.edit_mode = True
+        
+        center_y = self.height() // 2
+        editor_width = min(self.width() - 100, 800)
+        self.editor.setFixedWidth(editor_width)
+        self.editor.move((self.width() - editor_width) // 2, 
+                         center_y - self.editor.height() // 2)
+        
+        current_text = self.ring.current()
+        self.editor.setText(current_text)
+        self.editor.selectAll()
+        self.editor.show()
+        self.editor.setFocus()
+        
+        self.update()
+
+    def save_edit(self):
+        new_text = self.editor.text().strip()
+        
+        if new_text:
+            self.ring.lines[self.ring.index] = new_text
+            print(f"✅ Línea actualizada: {new_text}")
+            self.line_saved.emit()
+        
+        self.exit_edit_mode()
+
+    def cancel_edit(self):
+        self.exit_edit_mode()
+
+    def exit_edit_mode(self):
+        self.edit_mode = False
+        self.editor.hide()
+        self.setFocus()
+        self.update()
+
+    def calculate_alpha(self, distance_from_center_px):
+        # 1. Distancia en unidades de línea
+        dist = distance_from_center_px / self.line_height
+        
+        # 2. Función de Cauchy / Racional
+        # El '+ 1' asegura que en el centro (dist=0) el alpha sea 1.0
+        # El '1.5' es el factor de caída. 
+        # Si querés que el degradado sea MÁS LARGO todavía, bajá el 1.5 a 1.0 o 0.8
+        alpha = 1.0 / (1.0 + 1.5 * (dist ** 2))
+        
+        # Ajustamos el mínimo para que no desaparezcan tan rápido
+        return max(0.02, min(self.max_alpha, alpha))
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        fm = QFontMetrics(self.font())
+
+        w = self.width()
+        h = self.height()
+        center_y = h // 2
+        
+        if self.edit_mode:
+            painter.setOpacity(0.2)
+            text = self.ring.current()
+            text_rect = fm.boundingRect(0, 0, w, 1000, Qt.AlignmentFlag.AlignCenter, text)
+            y = int(center_y - text_rect.height() / 2)
+            painter.drawText(0, y, w, text_rect.height(),
+                            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                            text)
+        else:
+            # Renderizar suficientes líneas
+            if self.circle_radius > 0:
+                max_lines = int(self.circle_radius / self.line_height) + 3
+            else:
+                max_lines = 20
+            
+            for i in range(-max_lines, max_lines + 1):
+                # Calculamos la posición base con el offset de la animación
+                y_pos = center_y + (i + self._offset) * self.line_height
+                
+                text = self.ring.get(i)
+                text_rect = fm.boundingRect(0, 0, w, 1000, Qt.AlignmentFlag.AlignCenter, text)
+                
+                # Coordenada Y donde se dibuja el texto
+                draw_y = int(y_pos - text_rect.height() / 2)
+                
+                # La distancia al centro la medimos desde el centro de la línea
+                distance_from_center = abs(y_pos - center_y)
+                
+                # Calcular alpha armónico
+                alpha = self.calculate_alpha(distance_from_center)
+                
+                if alpha < 0.01:
+                    continue
+                
+                painter.setOpacity(alpha)
+                painter.drawText(0, draw_y, w, text_rect.height(),
+                                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                                text)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        screen_width = self.width()
+        screen_height = self.height()
+        self.circle_radius = min(screen_width, screen_height) // 2 - 35
+        
+        if self.edit_mode:
+            center_y = self.height() // 2
+            editor_width = min(self.width() - 100, 800)
+            self.editor.setFixedWidth(editor_width)
+            self.editor.move((self.width() - editor_width) // 2, 
+                             center_y - self.editor.height() // 2)
+        self.update()
+
+
+class CustomLineEdit(QLineEdit):
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.returnPressed.emit()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
 # --- combined_code.py ---
 import os
 
@@ -861,6 +1054,44 @@ def void_line(app, event=None):
         app.entry.clear()
         app.entry.setFocus()
 
+# --- line_ring.py ---
+class LineRing:
+    def __init__(self, lines=None):
+        self.lines = list(lines) if lines else [""]
+        self.index = 0
+
+    def current(self):
+        return self.lines[self.index]
+
+    def move(self, delta):
+        if not self.lines:
+            return
+        self.index = (self.index + delta) % len(self.lines)
+
+    def get(self, offset=0):
+        if not self.lines:
+            return ""
+        return self.lines[(self.index + offset) % len(self.lines)]
+
+    def insert(self, text, after_current=False):
+        pos = self.index + 1 if after_current else self.index
+        self.lines.insert(pos, text)
+        if after_current:
+            self.move(1)
+
+    def remove_current(self):
+        if len(self.lines) <= 1:
+            self.lines = [""]
+            self.index = 0
+            return
+        del self.lines[self.index]
+        if self.index >= len(self.lines):
+            self.index = len(self.lines) - 1
+
+    def to_list_from_current(self):
+        """Para exportar/imprimir con la línea actual primero"""
+        return self.lines[self.index:] + self.lines[:self.index]
+
 # --- new_interface.py ---
 import os
 import sys
@@ -872,54 +1103,42 @@ from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from files import setup_file_handling, void_line
 from controls import setup_controls, show_random_line_from_current_file, show_previous_current_file_line, show_next_current_file_line, show_random_line_from_random_file
 from noise_controls import NoiseController
+from line_ring import LineRing
+from circular_view import CircularView
 
 class CustomLineEdit(QLineEdit):
-    spacePressed = pyqtSignal() # Custom signal for Spacebar
+    spacePressed = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.parent = parent # Keep reference to parent FullscreenCircleApp
+        self.parent = parent
 
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
-        
-        # Handle Spacebar for voiding if in Spacebar mode
-        if key == Qt.Key.Key_Space:
-            if self.parent and hasattr(self.parent, 'use_spacebar_for_void') and self.parent.use_spacebar_for_void:
-                self.spacePressed.emit() # Emit custom signal
-                event.accept() # Consume the event so a space character isn't typed
-                return # Exit early to prevent super().keyPressEvent
-            else:
-                # If not in spacebar void mode, let it type a space character
-                super().keyPressEvent(event)
-                return # Exit early
 
-        # Existing Control+0, Control+.
+        if key == Qt.Key.Key_Space:
+            if self.parent.use_spacebar_for_void:
+                self.spacePressed.emit()
+                event.accept()
+                return
+            super().keyPressEvent(event)
+            return
+
         if key == Qt.Key.Key_0 and (modifiers & Qt.KeyboardModifier.ControlModifier):
-            print("Control+0 detected, executing show_random_line_from_random_file") 
-            self.parent.last_inserted_index = None 
             show_random_line_from_random_file(self.parent, event)
-            event.accept()  # Consume the event so '0' isn't escrito
-            
+            event.accept()
         elif key == Qt.Key.Key_Period and (modifiers & Qt.KeyboardModifier.ControlModifier):
-            print("Control+. detected, executing show_random_line_from_current_file") 
-            self.parent.last_inserted_index = None 
             show_random_line_from_current_file(self.parent, event)
-            event.accept()  # Consume the event so '.' isn't escrito
-            
-        # Existing Control+Up/Down
-        elif (key == Qt.Key.Key_Up or key == Qt.Key.Key_Down) and (modifiers & Qt.KeyboardModifier.ControlModifier):
-            self.parent.keyPressEvent(event) # Pass to parent for file navigation
-            
+            event.accept()
         else:
-            super().keyPressEvent(event) # Default handling for all other keys
+            super().keyPressEvent(event)
 
 
 class CircleBackground(QWidget):
     def __init__(self, parent=None, center_x=0, center_y=0, radius=0):
         super().__init__(parent)
-        self.center_x = center_x 
+        self.center_x = center_x
         self.center_y = center_y
         self.radius = radius
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -931,20 +1150,17 @@ class CircleBackground(QWidget):
         pen = QPen(QColor("white"), 10)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawEllipse(
-            self.center_x - self.radius, 
-            self.center_y - self.radius,
-            self.radius * 2,
-            self.radius * 2
-        )
+        painter.drawEllipse(self.center_x - self.radius, self.center_y - self.radius,
+                            self.radius * 2, self.radius * 2)
 
     def resizeEvent(self, event):
         self.resize(self.parent().size())
 
+
 class NoiseOverlay(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents) 
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.noise_pixmap = None
         self.timer = QTimer(self)
@@ -955,7 +1171,7 @@ class NoiseOverlay(QWidget):
         block_size = 1
         w, h = self.width(), self.height()
         h_blocks, w_blocks = h // block_size, w // block_size
-        noise_gray = np.random.randint(0, 256, (h_blocks, w_blocks), dtype=np.uint8) 
+        noise_gray = np.random.randint(0, 256, (h_blocks, w_blocks), dtype=np.uint8)
         image = QImage(noise_gray.data, w_blocks, h_blocks, w_blocks, QImage.Format.Format_Grayscale8)
         image = image.scaled(w, h, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation)
         self.noise_pixmap = QPixmap.fromImage(image)
@@ -964,8 +1180,9 @@ class NoiseOverlay(QWidget):
     def paintEvent(self, event):
         if self.noise_pixmap:
             painter = QPainter(self)
-            painter.setOpacity(0.09)  # More visible 
+            painter.setOpacity(0.09)
             painter.drawPixmap(0, 0, self.noise_pixmap)
+
 
 class FullscreenCircleApp(QMainWindow):
     def __init__(self, read_dir=None, void_dir=None, file_to_open=None):
@@ -974,34 +1191,27 @@ class FullscreenCircleApp(QMainWindow):
         self.read_dir = read_dir
         self.void_dir = void_dir
         self.file_to_open = file_to_open
-        self.txt_files = []  # List to store .txt files in the directory
-        self.current_file_index = 0  # Index of the current file in txt_files
-        
+        self.txt_files = []
+        self.current_file_index = 0
+
         self.setWindowTitle("Voider")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
         self.setStyleSheet("background-color: black;")
 
-        self.entry = CustomLineEdit(self) 
+        self.entry = CustomLineEdit(self)
         self.entry.setFont(QFont("Consolas", 11))
         self.entry.setStyleSheet("""
             QLineEdit {
                 background-color: black;
-                color: white; 
+                color: white;
                 border: none;
                 qproperty-alignment: AlignCenter;
                 selection-background-color: white;
                 selection-color: black;
             }
-        """) 
+        """)
         self.entry.setFocus()
-        
-        # --- REMOVED: Status Label and its setup ---
-        # self.status_label = QLabel("", self) 
-        # self.status_label.setFont(QFont("Consolas", 9))
-        # self.status_label.setStyleSheet("color: white; background-color: rgba(0,0,0,150); padding: 3px; border-radius: 5px;")
-        # self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # self.status_label.adjustSize() 
 
         self.loading = QLabel("Loading potentiality", self)
         self.loading.setFont(QFont("Consolas", 11))
@@ -1011,150 +1221,131 @@ class FullscreenCircleApp(QMainWindow):
         self.loading.hide()
 
         self.noise_controller = NoiseController(
-            block_size=1024, volume=0.3, noise_type='brown', 
+            block_size=1024, volume=0.3, noise_type='brown',
             bitcrush={'bit_depth': 10, 'sample_rate_factor': 0.7},
             lfo_min_freq=0.03, lfo_max_freq=0.1, glitch_prob=0.005, cutoff_freq=2500
         )
 
-        self.setup_voider_logic()
-        
-        # --- NEW: Key Toggle Logic Setup ---
-        self.use_spacebar_for_void = False # Default to Enter key
-        self._print_void_mode_status() # Print initial status to console
+        # ── Modo circular ────────────────────────────────
+        self.circular_mode = False
+        self.line_ring = None
+        self.circular_view = None
+        # ─────────────────────────────────────────────────
 
-        # Store connections for dynamic management
+        self.setup_voider_logic()
+
+        self.use_spacebar_for_void = False
+        self._print_void_mode_status()
         self._void_enter_connection = None
         self._void_space_connection = None
-        self._connect_void_key() # Connect the default key (Enter)
-        # --- END NEW Key Toggle Logic Setup ---
+        self._connect_void_key()
 
-        self.init_ui() # Call init_ui after all widgets are instantiated
+        self.init_ui()
 
-    # --- NEW: Key Toggle Helper Methods (modified to use print instead of QLabel) ---
+    # Métodos para modo void (Enter / Space) ─────────────
     def _print_void_mode_status(self):
-        if self.use_spacebar_for_void:
-            print("VOID MODE: Spacebar (Press F2 to switch)")
-        else:
-            print("VOID MODE: Enter (Press F2 to switch)")
+        print("VOID MODE:", "Spacebar" if self.use_spacebar_for_void else "Enter", "(F2 para cambiar)")
 
     def _connect_void_key(self):
-        self._disconnect_void_key() # Disconnect existing connections first
-
+        self._disconnect_void_key()
         if self.use_spacebar_for_void:
             self._void_space_connection = self.entry.spacePressed.connect(lambda: void_line(self))
         else:
             self._void_enter_connection = self.entry.returnPressed.connect(lambda: void_line(self))
 
     def _disconnect_void_key(self):
-        # Disconnect any currently active connections safely
         if self._void_enter_connection:
-            try:
-                self.entry.returnPressed.disconnect(self._void_enter_connection)
-            except TypeError:
-                pass # Already disconnected
+            try: self.entry.returnPressed.disconnect(self._void_enter_connection)
+            except: pass
             self._void_enter_connection = None
         if self._void_space_connection:
-            try:
-                self.entry.spacePressed.disconnect(self._void_space_connection)
-            except TypeError:
-                pass # Already disconnected
+            try: self.entry.spacePressed.disconnect(self._void_space_connection)
+            except: pass
             self._void_space_connection = None
 
     def toggle_void_key_mode(self):
         self.use_spacebar_for_void = not self.use_spacebar_for_void
-        self._print_void_mode_status() # Print status to console
-        self._connect_void_key() # Update connections based on new mode
-        self.entry.setFocus() # Ensure focus remains on the entry field
-    # --- END NEW Key Toggle Helper Methods ---
+        self._print_void_mode_status()
+        self._connect_void_key()
+        self.entry.setFocus()
+
+    # Toggle modo circular ───────────────────────────────
+    def toggle_circular_mode(self):
+        self.circular_mode = not self.circular_mode
+
+        if self.circular_mode:
+            try:
+                with open(self.current_file_path, 'r', encoding='utf-8') as f:
+                    lines = [l.strip() for l in f if l.strip()]
+                self.line_ring = LineRing(lines or [""])
+            except:
+                self.line_ring = LineRing([""])
+
+            self.circular_view = CircularView(self.line_ring, self)
+            self.circular_view.resize(self.size())
+            self.circular_view.show()
+            self.entry.hide()
+            self.circular_view.setFocus()
+        else:
+            if self.circular_view:
+                self.circular_view.deleteLater()
+                self.circular_view = None
+            self.entry.show()
+            self.entry.setFocus()
+
+    # ─────────────────────────────────────────────────────
 
     def setup_voider_logic(self):
-        # Set the current file path based on file_to_open
-        if self.file_to_open:
-            self.current_file_path = self.file_to_open
-        else:
-            self.current_file_path = os.path.join(self.void_dir, '0.txt')
-        
-        self.void_file_path = os.path.join(self.void_dir, '0.txt')  # Keep reference to 0.txt
-        print(f"void_file_path (0.txt): {self.void_file_path}")
-        print(f"current_file_path (active file): {self.current_file_path}")
-        
-        # Scan the directory for .txt files
+        self.current_file_path = self.file_to_open or os.path.join(self.void_dir, '0.txt')
+        self.void_file_path = os.path.join(self.void_dir, '0.txt')
         self.scan_txt_files()
-        
-        self.current_active_line = None 
-        self.current_active_line_index = None 
-        self.last_inserted_index = None 
-        setup_file_handling(self)  # This will ensure the file exists
+        setup_file_handling(self)
         setup_controls(self)
 
     def scan_txt_files(self):
-        """Scans the directory of the current file for .txt files and stores them in txt_files."""
         dir_path = os.path.dirname(self.current_file_path)
-        self.txt_files = [
-            os.path.join(dir_path, f) for f in os.listdir(dir_path)
-            if f.lower().endswith('.txt') and os.path.isfile(os.path.join(dir_path, f))
-        ]
-        self.txt_files.sort()  # Sort alphabetically for consistent navigation
+        self.txt_files = [os.path.join(dir_path, f) for f in os.listdir(dir_path)
+                          if f.lower().endswith('.txt') and os.path.isfile(os.path.join(dir_path, f))]
+        self.txt_files.sort()
         if self.current_file_path in self.txt_files:
             self.current_file_index = self.txt_files.index(self.current_file_path)
         else:
             self.txt_files.append(self.current_file_path)
             self.txt_files.sort()
             self.current_file_index = self.txt_files.index(self.current_file_path)
-        print(f"Found {len(self.txt_files)} .txt files in {dir_path}: {self.txt_files}")
 
     def switch_to_file(self, file_path):
-        """Switches the active file to the specified file_path and resets state."""
         if not os.path.exists(file_path):
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write('')
-            print(f"Created file: {file_path}")
-        
         self.current_file_path = file_path
         self.current_file_index = self.txt_files.index(file_path)
-        self.current_active_line = None
-        self.current_active_line_index = None
-        self.last_inserted_index = None
         self.entry.clear()
-        print(f"Switched to file: {os.path.basename(file_path)}, Index: {self.current_file_index}")
 
     def show_previous_file(self):
-        """Switches to the previous .txt file in the list."""
-        if not self.txt_files:
-            print("No .txt files available to navigate.")
-            return
+        if not self.txt_files: return
         self.current_file_index = (self.current_file_index - 1) % len(self.txt_files)
         self.switch_to_file(self.txt_files[self.current_file_index])
 
     def show_next_file(self):
-        """Switches to the next .txt file in the list."""
-        if not self.txt_files:
-            print("No .txt files available to navigate.")
-            return
+        if not self.txt_files: return
         self.current_file_index = (self.current_file_index + 1) % len(self.txt_files)
         self.switch_to_file(self.txt_files[self.current_file_index])
 
     def init_ui(self):
-        print("Initializing UI")
         self.showFullScreen()
         screen = self.screen().availableGeometry()
         self.center_x = screen.width() // 2
         self.center_y = screen.height() // 2
-        self.radius = min(screen.width(), screen.height()) // 2 - 35 
+        self.radius = min(screen.width(), screen.height()) // 2 - 35
         entry_width = self.radius * 2 - 40
-        
-        self.entry.setFixedWidth(entry_width)
-        # Position entry in the center
-        self.entry.move(self.center_x - entry_width // 2,
-                        self.center_y - self.entry.height() // 2)
 
-        # --- REMOVED: Status label positioning ---
-        # self.status_label.move(self.center_x - self.status_label.width() // 2,
-        #                        self.entry.y() - self.status_label.height() - 10) 
+        self.entry.setFixedWidth(entry_width)
+        self.entry.move(self.center_x - entry_width // 2, self.center_y - self.entry.height() // 2)
 
         self.loading.move(self.center_x - 150, self.center_y - 50)
         self.loading.show()
-        QTimer.singleShot(1500, self.loading.deleteLater) 
+        QTimer.singleShot(1500, self.loading.deleteLater)
 
         self.circle_background = CircleBackground(self, self.center_x, self.center_y, self.radius)
         self.circle_background.resize(self.size())
@@ -1163,45 +1354,55 @@ class FullscreenCircleApp(QMainWindow):
         self.noise_overlay = NoiseOverlay(self)
         self.noise_overlay.resize(self.size())
         self.noise_overlay.show()
-        self.noise_overlay.raise_() # Put it on top of everything
+        self.noise_overlay.raise_()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         if hasattr(self, 'noise_overlay'):
-            self.noise_overlay.resize(self.size()) 
+            self.noise_overlay.resize(self.size())
         if hasattr(self, 'circle_background'):
             self.circle_background.resize(self.size())
-        
-        # Reposition entry on resize
-        if hasattr(self, 'entry'):
-            screen = self.screen().availableGeometry()
-            self.center_x = screen.width() // 2
-            self.center_y = screen.height() // 2
-            self.radius = min(screen.width(), screen.height()) // 2 - 35 
-            entry_width = self.radius * 2 - 40
-            self.entry.setFixedWidth(entry_width)
-            self.entry.move(self.center_x - entry_width // 2,
-                            self.center_y - self.entry.height() // 2)
-            # --- REMOVED: Status label repositioning ---
-            # if hasattr(self, 'status_label'):
-            #     self.status_label.move(self.center_x - self.status_label.width() // 2,
-            #                            self.entry.y() - self.status_label.height() - 10)
+        if hasattr(self, 'circular_view') and self.circular_view:
+            self.circular_view.resize(self.size())
 
+        screen = self.screen().availableGeometry()
+        self.center_x = screen.width() // 2
+        self.center_y = screen.height() // 2
+        self.radius = min(screen.width(), screen.height()) // 2 - 35
+        entry_width = self.radius * 2 - 40
+        self.entry.setFixedWidth(entry_width)
+        self.entry.move(self.center_x - entry_width // 2, self.center_y - self.entry.height() // 2)
 
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
-        # print(f"Key in window: {key}, Modifiers: {modifiers}") # Debugging line
 
-        # Handle F2 for toggling void key mode
         if key == Qt.Key.Key_F2:
             self.toggle_void_key_mode()
-            event.accept() # Consume the F2 event
-            return # Exit early to prevent other handlers from firing
+            event.accept()
+            return
 
+        if key == Qt.Key.Key_F3:           # ← tecla para toggle circular (cambia si quieres)
+            self.toggle_circular_mode()
+            event.accept()
+            return
+
+        if self.circular_mode:
+            if key == Qt.Key.Key_Up:
+                self.circular_view.animate_move(-1)
+                event.accept()
+            elif key == Qt.Key.Key_Down:
+                self.circular_view.animate_move(1)
+                event.accept()
+            elif key == Qt.Key.Key_Escape:
+                self.toggle_circular_mode()
+                event.accept()
+            return
+
+        # Modo normal
         if key == Qt.Key.Key_Escape:
             self.noise_controller.stop()
-            self.close() 
+            self.close()
         elif key == Qt.Key.Key_Up and modifiers == Qt.KeyboardModifier.ControlModifier:
             self.increase_opacity()
         elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.ControlModifier:
@@ -1211,9 +1412,9 @@ class FullscreenCircleApp(QMainWindow):
         elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.AltModifier:
             self.show_next_file()
         elif key == Qt.Key.Key_Up:
-            show_previous_current_file_line(self) # Updated for active file
+            show_previous_current_file_line(self)
         elif key == Qt.Key.Key_Down:
-            show_next_current_file_line(self) # Updated for active file
+            show_next_current_file_line(self)
 
     def increase_opacity(self):
         self.opacity = min(1.0, self.opacity + 0.1)
@@ -1226,23 +1427,11 @@ class FullscreenCircleApp(QMainWindow):
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    
-    # Define directories for file handling
-    read_directory = 'read_potential' 
+    read_directory = 'read_potential'
     void_directory = 'void_potential'
-    
-    # Ensure directories exist
     os.makedirs(read_directory, exist_ok=True)
     os.makedirs(void_directory, exist_ok=True)
-    
-    # Example usage:
-    # To open a specific file on startup:
-    # file_to_start_with = os.path.join(read_directory, 'example.txt')
-    # window = FullscreenCircleApp(read_dir=read_directory, void_dir=void_directory, file_to_open=file_to_start_with)
-    
-    # To open the default file (0.txt in void_potential if no file_to_open)
     window = FullscreenCircleApp(read_dir=read_directory, void_dir=void_directory)
-    
     sys.exit(app.exec())
 
 # --- noise_controls.py ---
@@ -1391,6 +1580,116 @@ class NoiseController:
         self.cutoff_freq = max(50, min(8000, cutoff))
         print(f"NoiseController: Cutoff frequency set to {self.cutoff_freq} Hz")
 
+
+# --- test_circular.py ---
+from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont, QCursor
+import sys
+import os
+
+from line_ring import LineRing
+from circular_view import CircularView
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Circular View Test")
+        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
+        self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
+        self.setStyleSheet("background: black; color: white;")
+
+        # Cargar archivo 0.txt
+        possible_paths = [
+            os.path.join("void_potential", "0.txt"),
+            os.path.join("void", "0.txt"),
+            "0.txt",
+            os.path.join(os.path.dirname(__file__), "void_potential", "0.txt"),
+            os.path.join(os.path.dirname(__file__), "void", "0.txt"),
+        ]
+        
+        lines = None
+        self.file_path = None
+        
+        for path in possible_paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        lines = [l.strip() for l in f if l.strip()]
+                    self.file_path = path
+                    print(f"✅ Archivo cargado: {path}")
+                    break
+                except Exception as e:
+                    print(f"❌ Error leyendo {path}: {e}")
+        
+        if lines is None or not lines:
+            lines = [
+                "Bienvenido a Circular View",
+                "Presiona Enter para editar",
+                "Usa ↑ y ↓ para navegar",
+                "ESC para salir",
+                "Las ediciones se guardan automáticamente"
+            ]
+            print(f"⚠️ Usando líneas de ejemplo")
+
+        # Crear ring y vista
+        self.ring = LineRing(lines)
+        self.view = CircularView(self.ring, self)
+        
+        # Conectar señal de guardado automático
+        self.view.line_saved.connect(self.auto_save)
+        
+        font = QFont("Consolas", 11)
+        self.view.setFont(font)
+        
+        self.setCentralWidget(self.view)
+        self.showFullScreen()
+
+    def auto_save(self):
+        """Guarda automáticamente después de cada edición"""
+        if self.file_path:
+            try:
+                with open(self.file_path, 'w', encoding='utf-8') as f:
+                    for line in self.ring.lines:
+                        f.write(line + '\n')
+                print(f"💾 Auto-guardado en {self.file_path}")
+            except Exception as e:
+                print(f"❌ Error en auto-guardado: {e}")
+
+    def keyPressEvent(self, event):
+        """Captura las teclas de navegación y edición"""
+        key = event.key()
+        
+        if self.view.edit_mode:
+            # En modo edición, ESC cancela (Enter lo maneja el editor)
+            if key == Qt.Key.Key_Escape:
+                self.view.cancel_edit()
+                event.accept()
+        else:
+            # En modo scroll
+            if key == Qt.Key.Key_Up:
+                self.view.animate_move(-1)
+                event.accept()
+            elif key == Qt.Key.Key_Down:
+                self.view.animate_move(1)
+                event.accept()
+            elif key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
+                self.view.enter_edit_mode()
+                event.accept()
+            elif key == Qt.Key.Key_Escape:
+                self.save_and_exit()
+
+    def save_and_exit(self):
+        """Guardar cambios y salir (por si acaso, aunque ya hay auto-save)"""
+        self.auto_save()  # Un último save antes de salir
+        self.close()
+
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    sys.exit(app.exec())
 
 # --- test_voider.py ---
 # test_voider.py
