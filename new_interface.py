@@ -1,3 +1,4 @@
+# new_interface.py - SISTEMA DE 3 VISTAS (copiando estructura de test_circular.py)
 import os
 import sys
 import numpy as np
@@ -11,6 +12,148 @@ from noise_controls import NoiseController
 from line_ring import LineRing
 from circular_view import CircularView
 
+
+# ══════════════════════════════════════════════════════════════
+# VISTA F1 - MODO NORMAL (círculo + entry)
+# ══════════════════════════════════════════════════════════════
+class NormalView(QWidget):
+    """Vista F1 - Modo normal con círculo y entry"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent_app = parent
+        self.setStyleSheet("background: black;")
+        
+    def paintEvent(self, event):
+        """Dibuja el círculo blanco"""
+        if not self.parent_app:
+            return
+        
+        # Verificar que el widget esté visible y tenga tamaño
+        if self.width() == 0 or self.height() == 0:
+            return
+            
+        painter = QPainter(self)
+        if not painter.isActive():
+            return
+            
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor("white"), 10)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        
+        w = self.width()
+        h = self.height()
+        center_x = w // 2
+        center_y = h // 2
+        radius = min(w, h) // 2 - 35
+        
+        painter.drawEllipse(center_x - radius, center_y - radius, radius * 2, radius * 2)
+
+
+# ══════════════════════════════════════════════════════════════
+# VISTA F3 - VERSOS
+# ══════════════════════════════════════════════════════════════
+class VersesView(QWidget):
+    """Vista F3 - Versos (bloques entre puntos)"""
+    def __init__(self, ring, parent=None):
+        super().__init__(parent)
+        self.ring = ring
+        self.verses = []
+        self.current_verse_index = 0
+        self.setStyleSheet("background: black; color: white;")
+    
+    def calculate_verses(self):
+        """Divide las líneas en versos separados por '.'"""
+        verses = []
+        current_verse = []
+        start_index = 0
+        
+        for idx, line in enumerate(self.ring.lines):
+            if line.strip() == '.':
+                if current_verse:
+                    verses.append({
+                        'lines': current_verse,
+                        'start': start_index,
+                        'end': idx - 1
+                    })
+                    current_verse = []
+                start_index = idx + 1
+            else:
+                current_verse.append(line)
+        
+        if current_verse:
+            verses.append({
+                'lines': current_verse,
+                'start': start_index,
+                'end': len(self.ring.lines) - 1
+            })
+        
+        if not verses:
+            verses.append({'lines': [""], 'start': 0, 'end': 0})
+        
+        return verses
+    
+    def find_current_verse(self):
+        """Encuentra el verso que contiene ring.index"""
+        for idx, verse in enumerate(self.verses):
+            if verse['start'] <= self.ring.index <= verse['end']:
+                return idx
+        return 0
+    
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        
+        font = QFont("Consolas", 11)
+        painter.setPen(QColor("white"))
+        
+        w = self.width()
+        h = self.height()
+        line_height = 25
+        verse_spacing = 60
+        
+        # Recalcular versos
+        self.verses = self.calculate_verses()
+        self.current_verse_index = self.find_current_verse()
+        
+        # Centrar el verso actual
+        y_offset = h // 2 - (self.current_verse_index * (line_height * 5 + verse_spacing))
+        
+        for verse_idx, verse in enumerate(self.verses):
+            is_current = (verse_idx == self.current_verse_index)
+            
+            if is_current:
+                painter.setOpacity(1.0)
+                font.setPointSize(12)
+            else:
+                painter.setOpacity(0.3)
+                font.setPointSize(10)
+            
+            painter.setFont(font)
+            
+            verse_y = y_offset
+            for line_idx, line in enumerate(verse['lines']):
+                text_y = verse_y + (line_idx * line_height)
+                
+                # Barra lateral para verso actual
+                if is_current:
+                    painter.setOpacity(1.0)
+                    painter.setPen(QColor("white"))
+                    painter.drawLine(50, text_y, 50, text_y + line_height - 5)
+                
+                # Texto centrado
+                painter.setOpacity(1.0 if is_current else 0.3)
+                painter.setPen(QColor("white"))
+                painter.drawText(0, text_y, w, line_height,
+                                Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
+                                line)
+            
+            y_offset += len(verse['lines']) * line_height + verse_spacing
+
+
+# ══════════════════════════════════════════════════════════════
+# COMPONENTES AUXILIARES
+# ══════════════════════════════════════════════════════════════
 class CustomLineEdit(QLineEdit):
     spacePressed = pyqtSignal()
 
@@ -40,28 +183,6 @@ class CustomLineEdit(QLineEdit):
             super().keyPressEvent(event)
 
 
-class CircleBackground(QWidget):
-    def __init__(self, parent=None, center_x=0, center_y=0, radius=0):
-        super().__init__(parent)
-        self.center_x = center_x
-        self.center_y = center_y
-        self.radius = radius
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pen = QPen(QColor("white"), 10)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawEllipse(self.center_x - self.radius, self.center_y - self.radius,
-                            self.radius * 2, self.radius * 2)
-
-    def resizeEvent(self, event):
-        self.resize(self.parent().size())
-
-
 class NoiseOverlay(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -89,6 +210,9 @@ class NoiseOverlay(QWidget):
             painter.drawPixmap(0, 0, self.noise_pixmap)
 
 
+# ══════════════════════════════════════════════════════════════
+# APP PRINCIPAL
+# ══════════════════════════════════════════════════════════════
 class FullscreenCircleApp(QMainWindow):
     def __init__(self, read_dir=None, void_dir=None, file_to_open=None):
         super().__init__()
@@ -102,8 +226,9 @@ class FullscreenCircleApp(QMainWindow):
         self.setWindowTitle("Voider")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
-        self.setStyleSheet("background-color: black;")
+        self.setStyleSheet("background-color: black; color: white;")  # ← Importante para color
 
+        # Entry para F1
         self.entry = CustomLineEdit(self)
         self.entry.setFont(QFont("Consolas", 11))
         self.entry.setStyleSheet("""
@@ -116,14 +241,6 @@ class FullscreenCircleApp(QMainWindow):
                 selection-color: black;
             }
         """)
-        self.entry.setFocus()
-
-        self.loading = QLabel("Loading potentiality", self)
-        self.loading.setFont(QFont("Consolas", 11))
-        self.loading.setStyleSheet("color: white; background-color: black;")
-        self.loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.loading.resize(300, 100)
-        self.loading.hide()
 
         self.noise_controller = NoiseController(
             block_size=1024, volume=0.3, noise_type='brown',
@@ -131,11 +248,21 @@ class FullscreenCircleApp(QMainWindow):
             lfo_min_freq=0.03, lfo_max_freq=0.1, glitch_prob=0.005, cutoff_freq=2500
         )
 
-        # ── Modo circular ────────────────────────────────
-        self.circular_mode = False
+        # Sistema de 3 vistas con QStackedWidget
+        self.current_view = 0  # 0=F1, 1=F2, 2=F3
         self.line_ring = None
-        self.circular_view = None
-        # ─────────────────────────────────────────────────
+        
+        # Crear container
+        from PyQt6.QtWidgets import QStackedWidget
+        self.stack = QStackedWidget()
+        
+        # Crear vistas
+        self.normal_view = NormalView(self)
+        self.circular_view = None  # Se crea al cambiar a F2
+        self.verses_view = None    # Se crea al cambiar a F3
+        
+        # Agregar normal view al stack
+        self.stack.addWidget(self.normal_view)
 
         self.setup_voider_logic()
 
@@ -146,10 +273,12 @@ class FullscreenCircleApp(QMainWindow):
         self._connect_void_key()
 
         self.init_ui()
+        
+        # Empezar en F1
+        self.switch_to_view(0)
 
-    # Métodos para modo void (Enter / Space) ─────────────
     def _print_void_mode_status(self):
-        print("VOID MODE:", "Spacebar" if self.use_spacebar_for_void else "Enter", "(F2 para cambiar)")
+        print("VOID MODE:", "Spacebar" if self.use_spacebar_for_void else "Enter")
 
     def _connect_void_key(self):
         self._disconnect_void_key()
@@ -169,36 +298,74 @@ class FullscreenCircleApp(QMainWindow):
             self._void_space_connection = None
 
     def toggle_void_key_mode(self):
+        """Función sin tecla asignada"""
         self.use_spacebar_for_void = not self.use_spacebar_for_void
         self._print_void_mode_status()
         self._connect_void_key()
-        self.entry.setFocus()
 
-    # Toggle modo circular ───────────────────────────────
-    def toggle_circular_mode(self):
-        self.circular_mode = not self.circular_mode
-
-        if self.circular_mode:
-            try:
-                with open(self.current_file_path, 'r', encoding='utf-8') as f:
-                    lines = [l.strip() for l in f if l.strip()]
-                self.line_ring = LineRing(lines or [""])
-            except:
-                self.line_ring = LineRing([""])
-
-            self.circular_view = CircularView(self.line_ring, self)
-            self.circular_view.resize(self.size())
-            self.circular_view.show()
+    def switch_to_view(self, view_index):
+        """Cambia entre vistas: 0=F1, 1=F2, 2=F3"""
+        self.current_view = view_index
+        
+        # Cargar líneas del archivo actual
+        try:
+            with open(self.current_file_path, 'r', encoding='utf-8') as f:
+                lines = [l.strip() for l in f if l.strip()]
+        except:
+            lines = []
+        
+        # Crear/actualizar line_ring manteniendo el índice
+        if not self.line_ring:
+            self.line_ring = LineRing(lines or [""])
+        else:
+            old_index = self.line_ring.index
+            self.line_ring.lines = lines or [""]
+            self.line_ring.index = min(old_index, len(self.line_ring.lines) - 1)
+        
+        if view_index == 0:  # F1
+            print("📍 Vista F1")
+            self.stack.setCurrentWidget(self.normal_view)
+            self.entry.show()
+            self.entry.raise_()
+            self.entry.setFocus()
+        
+        elif view_index == 1:  # F2
+            print("📍 Vista F2")
+            if not self.circular_view:
+                self.circular_view = CircularView(self.line_ring, self)
+                self.circular_view.setFont(QFont("Consolas", 11))
+                self.circular_view.line_saved.connect(self.auto_save_circular)
+                self.stack.addWidget(self.circular_view)
+            else:
+                self.circular_view.ring = self.line_ring
+            
+            self.stack.setCurrentWidget(self.circular_view)
             self.entry.hide()
             self.circular_view.setFocus()
-        else:
-            if self.circular_view:
-                self.circular_view.deleteLater()
-                self.circular_view = None
-            self.entry.show()
-            self.entry.setFocus()
+            self.circular_view.update()
+        
+        elif view_index == 2:  # F3
+            print("📍 Vista F3")
+            if not self.verses_view:
+                self.verses_view = VersesView(self.line_ring, self)
+                self.stack.addWidget(self.verses_view)
+            else:
+                self.verses_view.ring = self.line_ring
+            
+            self.stack.setCurrentWidget(self.verses_view)
+            self.entry.hide()
+            self.verses_view.setFocus()
+            self.verses_view.update()
 
-    # ─────────────────────────────────────────────────────
+    def auto_save_circular(self):
+        """Guarda desde F2"""
+        try:
+            with open(self.current_file_path, 'w', encoding='utf-8') as f:
+                for line in self.line_ring.lines:
+                    f.write(line + '\n')
+            print(f"💾 Guardado desde F2")
+        except Exception as e:
+            print(f"❌ Error: {e}")
 
     def setup_voider_logic(self):
         self.current_file_path = self.file_to_open or os.path.join(self.void_dir, '0.txt')
@@ -240,21 +407,16 @@ class FullscreenCircleApp(QMainWindow):
     def init_ui(self):
         self.showFullScreen()
         screen = self.screen().availableGeometry()
-        self.center_x = screen.width() // 2
-        self.center_y = screen.height() // 2
-        self.radius = min(screen.width(), screen.height()) // 2 - 35
-        entry_width = self.radius * 2 - 40
+        center_x = screen.width() // 2
+        center_y = screen.height() // 2
+        radius = min(screen.width(), screen.height()) // 2 - 35
+        entry_width = radius * 2 - 40
 
         self.entry.setFixedWidth(entry_width)
-        self.entry.move(self.center_x - entry_width // 2, self.center_y - self.entry.height() // 2)
-
-        self.loading.move(self.center_x - 150, self.center_y - 50)
-        self.loading.show()
-        QTimer.singleShot(1500, self.loading.deleteLater)
-
-        self.circle_background = CircleBackground(self, self.center_x, self.center_y, self.radius)
-        self.circle_background.resize(self.size())
-        self.circle_background.show()
+        self.entry.move(center_x - entry_width // 2, center_y - self.entry.height() // 2)
+        
+        # Setear el stack como central widget
+        self.setCentralWidget(self.stack)
 
         self.noise_overlay = NoiseOverlay(self)
         self.noise_overlay.resize(self.size())
@@ -265,69 +427,87 @@ class FullscreenCircleApp(QMainWindow):
         super().resizeEvent(event)
         if hasattr(self, 'noise_overlay'):
             self.noise_overlay.resize(self.size())
-        if hasattr(self, 'circle_background'):
-            self.circle_background.resize(self.size())
-        if hasattr(self, 'circular_view') and self.circular_view:
-            self.circular_view.resize(self.size())
-
+        
         screen = self.screen().availableGeometry()
-        self.center_x = screen.width() // 2
-        self.center_y = screen.height() // 2
-        self.radius = min(screen.width(), screen.height()) // 2 - 35
-        entry_width = self.radius * 2 - 40
+        center_x = screen.width() // 2
+        center_y = screen.height() // 2
+        entry_width = min(screen.width(), screen.height()) - 90
         self.entry.setFixedWidth(entry_width)
-        self.entry.move(self.center_x - entry_width // 2, self.center_y - self.entry.height() // 2)
+        self.entry.move(center_x - entry_width // 2, center_y - self.entry.height() // 2)
 
     def keyPressEvent(self, event):
         key = event.key()
         modifiers = event.modifiers()
 
-        if key == Qt.Key.Key_F2:
-            self.toggle_void_key_mode()
+        # Cambio de vistas (siempre disponible)
+        if key == Qt.Key.Key_F1:
+            self.switch_to_view(0)
+            event.accept()
+            return
+        elif key == Qt.Key.Key_F2:
+            self.switch_to_view(1)
+            event.accept()
+            return
+        elif key == Qt.Key.Key_F3:
+            self.switch_to_view(2)
             event.accept()
             return
 
-        if key == Qt.Key.Key_F3:           # ← tecla para toggle circular (cambia si quieres)
-            self.toggle_circular_mode()
-            event.accept()
-            return
-
-        if self.circular_mode:
-            if key == Qt.Key.Key_Up:
-                self.circular_view.animate_move(-1)
-                event.accept()
+        # Controles por vista
+        if self.current_view == 0:  # F1
+            if key == Qt.Key.Key_Escape:
+                self.noise_controller.stop()
+                self.close()
+            elif key == Qt.Key.Key_Up and modifiers == Qt.KeyboardModifier.ControlModifier:
+                self.opacity = min(1.0, self.opacity + 0.1)
+                self.setWindowOpacity(self.opacity)
+            elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.ControlModifier:
+                self.opacity = max(0.0, self.opacity - 0.1)
+                self.setWindowOpacity(self.opacity)
+            elif key == Qt.Key.Key_Up and modifiers == Qt.KeyboardModifier.AltModifier:
+                self.show_previous_file()
+            elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.AltModifier:
+                self.show_next_file()
+            elif key == Qt.Key.Key_Up:
+                show_previous_current_file_line(self)
             elif key == Qt.Key.Key_Down:
-                self.circular_view.animate_move(1)
-                event.accept()
-            elif key == Qt.Key.Key_Escape:
-                self.toggle_circular_mode()
-                event.accept()
-            return
-
-        # Modo normal
-        if key == Qt.Key.Key_Escape:
-            self.noise_controller.stop()
-            self.close()
-        elif key == Qt.Key.Key_Up and modifiers == Qt.KeyboardModifier.ControlModifier:
-            self.increase_opacity()
-        elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.ControlModifier:
-            self.decrease_opacity()
-        elif key == Qt.Key.Key_Up and modifiers == Qt.KeyboardModifier.AltModifier:
-            self.show_previous_file()
-        elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.AltModifier:
-            self.show_next_file()
-        elif key == Qt.Key.Key_Up:
-            show_previous_current_file_line(self)
-        elif key == Qt.Key.Key_Down:
-            show_next_current_file_line(self)
-
-    def increase_opacity(self):
-        self.opacity = min(1.0, self.opacity + 0.1)
-        self.setWindowOpacity(self.opacity)
-
-    def decrease_opacity(self):
-        self.opacity = max(0.0, self.opacity - 0.1)
-        self.setWindowOpacity(self.opacity)
+                show_next_current_file_line(self)
+        
+        elif self.current_view == 1:  # F2 (copiando test_circular.py)
+            if self.circular_view.edit_mode:
+                if key == Qt.Key.Key_Escape:
+                    self.circular_view.cancel_edit()
+                    event.accept()
+            else:
+                if key == Qt.Key.Key_Up:
+                    self.circular_view.animate_move(-1)
+                    event.accept()
+                elif key == Qt.Key.Key_Down:
+                    self.circular_view.animate_move(1)
+                    event.accept()
+                elif key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
+                    self.circular_view.enter_edit_mode()
+                    event.accept()
+                elif key == Qt.Key.Key_Escape:
+                    self.switch_to_view(0)
+        
+        elif self.current_view == 2:  # F3
+            if key == Qt.Key.Key_Escape:
+                self.switch_to_view(0)
+            elif key == Qt.Key.Key_Up:
+                verses = self.verses_view.calculate_verses()
+                current = self.verses_view.find_current_verse()
+                new_verse = (current - 1) % len(verses)
+                self.line_ring.index = verses[new_verse]['start']
+                self.verses_view.update()
+            elif key == Qt.Key.Key_Down:
+                verses = self.verses_view.calculate_verses()
+                current = self.verses_view.find_current_verse()
+                new_verse = (current + 1) % len(verses)
+                self.line_ring.index = verses[new_verse]['start']
+                self.verses_view.update()
+            elif key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
+                self.switch_to_view(1)
 
 
 if __name__ == '__main__':
