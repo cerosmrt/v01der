@@ -45,11 +45,21 @@ class VersesView(QWidget):
         self.ring = ring
         self.verses = []
         self.current_verse_index = 0
+        self._cached_ring_lines = None  # Cache para detectar cambios
         self.setStyleSheet("background: black; color: white;")
+    
+    def recalculate_verses_if_needed(self):
+        """Solo recalcula si el ring cambió"""
+        if self._cached_ring_lines != self.ring.lines:
+            self.verses = self.calculate_verses()
+            self._cached_ring_lines = self.ring.lines[:]
+            print(f"🔍 Calculados {len(self.verses)} bloques")
+        self.current_verse_index = self.find_current_verse()
 
     def calculate_verses(self):
         """
         Calcula los versos basándose en puntos '.' como separadores.
+        SOLO '.' es separador válido. Todo lo demás es contenido normal.
         Retorna lista de dicts con 'lines', 'start', 'end'.
         """
         verses = []
@@ -102,18 +112,26 @@ class VersesView(QWidget):
         line_height = 25
         verse_spacing = 60
 
-        # Calcular versos y encontrar el actual
-        self.verses = self.calculate_verses()
-        self.current_verse_index = self.find_current_verse()
+        # Usar cache en vez de recalcular siempre
+        self.recalculate_verses_if_needed()
 
-        # Centrar verticalmente el verso actual
-        y_offset = h // 2 - (self.current_verse_index * (line_height * 5 + verse_spacing))
+        # Calcular altura acumulada hasta el bloque actual
+        height_before_current = 0
+        for idx in range(self.current_verse_index):
+            verse_height = len(self.verses[idx]['lines']) * line_height
+            height_before_current += verse_height + verse_spacing
+        
+        # Altura del bloque actual
+        current_verse_height = len(self.verses[self.current_verse_index]['lines']) * line_height
+        
+        # Centrar: poner el MEDIO del bloque actual en h//2
+        y_offset = h // 2 - height_before_current - (current_verse_height // 2)
 
         for verse_idx, verse in enumerate(self.verses):
             is_current = (verse_idx == self.current_verse_index)
             verse_y = y_offset
 
-            # Estilo diferente para verso actual vs otros
+            # TODO el bloque actual se resalta, no solo una línea
             if is_current:
                 painter.setOpacity(1.0)
                 font.setPointSize(12)
@@ -126,20 +144,12 @@ class VersesView(QWidget):
             # Dibujar cada línea del verso
             for line_idx, line in enumerate(verse['lines']):
                 text_y = verse_y + (line_idx * line_height)
-                
-                # Calcular índice global de la línea
-                line_global_index = verse['start'] + line_idx
-                is_exact_line = (line_global_index == self.ring.index)
 
-                # Resaltar la línea exacta del índice actual
-                if is_current and is_exact_line:
-                    painter.setOpacity(1.0)
-                    painter.setPen(QColor("yellow"))
-                    painter.drawLine(50, text_y, 50, text_y + line_height - 5)
-                    painter.setPen(QColor("white"))
-                elif is_current:
+                # Resaltar TODO el bloque actual
+                if is_current:
                     painter.setOpacity(1.0)
                     painter.setPen(QColor("white"))
+                    # Línea vertical para TODO el bloque
                     painter.drawLine(50, text_y, 50, text_y + line_height - 5)
                 else:
                     painter.setOpacity(0.3)
@@ -150,7 +160,19 @@ class VersesView(QWidget):
                                 Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
                                 line)
 
-            y_offset += len(verse['lines']) * line_height + verse_spacing
+            # Avanzar offset DESPUÉS del verso
+            y_offset += len(verse['lines']) * line_height
+            
+            # Dibujar punto separador DESPUÉS del verso (si no es el último)
+            if verse_idx < len(self.verses) - 1:
+                dot_y = y_offset + verse_spacing // 2
+                painter.setOpacity(0.5)  # Puntos con opacidad media
+                painter.drawText(0, dot_y, w, line_height,
+                                Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
+                                ".")
+            
+            # Añadir espacio después del punto
+            y_offset += verse_spacing
 
 
 def sync_ring_with_file(app):
@@ -182,6 +204,11 @@ def sync_ring_with_file(app):
         app.line_ring.index = old_index
     else:
         app.line_ring.index = max(0, len(app.line_ring.lines) - 1)
+    
+    # CRÍTICO: Si después de sincronizar estamos en un punto, avanzar
+    if app.line_ring.lines and app.line_ring.current().strip() == '.':
+        print(f"   ⚠️ Índice apunta a punto, avanzando...")
+        app.line_ring.move(1)  # Esto saltea puntos automáticamente
     
     print(f"🔄 Ring sincronizado: {len(app.line_ring.lines)} líneas, índice={app.line_ring.index}")
     return app.line_ring
