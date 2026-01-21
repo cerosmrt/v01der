@@ -18,6 +18,7 @@ class CircularView(QWidget):
         self.circle_radius = 0
         self.current_animation = None
         self.edit_mode = False
+        self.insert_mode = False  # Nueva: modo insertar línea debajo
         
         # Crear el editor
         self.editor = CustomLineEdit(self)
@@ -54,14 +55,15 @@ class CircularView(QWidget):
         if self.current_animation and self.current_animation.state() == QPropertyAnimation.State.Running:
             return
         
+        # Animación simple - el move() del ring ya maneja el skip de puntos
         anim = QPropertyAnimation(self, b"offset")
-        anim.setDuration(220)
+        anim.setDuration(180)
         anim.setEasingCurve(QEasingCurve.Type.OutQuad)
         anim.setStartValue(self._offset)
         anim.setEndValue(self._offset - delta)
         
         def on_finished():
-            self.ring.move(delta)
+            self.ring.move(delta)  # Esto ya saltea puntos
             self._offset = 0.0
             self.update()
             self.current_animation = None
@@ -71,7 +73,9 @@ class CircularView(QWidget):
         self.current_animation = anim
 
     def enter_edit_mode(self):
+        """Entra en modo edición de la línea actual"""
         self.edit_mode = True
+        self.insert_mode = False
         
         center_y = self.height() // 2
         editor_width = min(self.width() - 100, 800)
@@ -87,12 +91,43 @@ class CircularView(QWidget):
         
         self.update()
 
+    def enter_insert_mode(self):
+        """Entra en modo insertar nueva línea DEBAJO de la actual"""
+        self.edit_mode = True
+        self.insert_mode = True
+        
+        center_y = self.height() // 2
+        editor_width = min(self.width() - 100, 800)
+        self.editor.setFixedWidth(editor_width)
+        
+        # Posicionar editor DEBAJO de la línea central (media línea abajo)
+        editor_y = center_y + int(self.line_height * 0.6)
+        self.editor.move((self.width() - editor_width) // 2, 
+                         editor_y - self.editor.height() // 2)
+        
+        # Editor vacío para nueva línea
+        self.editor.setText("")
+        self.editor.show()
+        self.editor.setFocus()
+        
+        print("➕ Modo insertar: Nueva línea debajo")
+        self.update()
+
     def save_edit(self):
         new_text = self.editor.text().strip()
         
         if new_text:
-            self.ring.lines[self.ring.index] = new_text
-            print(f"✅ Línea actualizada: {new_text}")
+            if self.insert_mode:
+                # Insertar NUEVA línea debajo de la actual
+                self.ring.lines.insert(self.ring.index + 1, new_text)
+                # Mover índice a la nueva línea
+                self.ring.index += 1
+                print(f"➕ Nueva línea insertada: {new_text}")
+            else:
+                # Editar línea actual
+                self.ring.lines[self.ring.index] = new_text
+                print(f"✅ Línea actualizada: {new_text}")
+            
             self.line_saved.emit()
         
         self.exit_edit_mode()
@@ -102,21 +137,18 @@ class CircularView(QWidget):
 
     def exit_edit_mode(self):
         self.edit_mode = False
+        self.insert_mode = False
         self.editor.hide()
         self.setFocus()
         self.update()
 
     def calculate_alpha(self, distance_from_center_px):
-        # 1. Distancia en unidades de línea
+        # Distancia en unidades de línea
         dist = distance_from_center_px / self.line_height
         
-        # 2. Función de Cauchy / Racional
-        # El '+ 1' asegura que en el centro (dist=0) el alpha sea 1.0
-        # El '1.5' es el factor de caída. 
-        # Si querés que el degradado sea MÁS LARGO todavía, bajá el 1.5 a 1.0 o 0.8
+        # Función de Cauchy / Racional
         alpha = 1.0 / (1.0 + 1.5 * (dist ** 2))
         
-        # Ajustamos el mínimo para que no desaparezcan tan rápido
         return max(0.02, min(self.max_alpha, alpha))
 
     def paintEvent(self, event):
@@ -129,34 +161,42 @@ class CircularView(QWidget):
         center_y = h // 2
         
         if self.edit_mode:
-            painter.setOpacity(0.2)
-            text = self.ring.current()
-            text_rect = fm.boundingRect(0, 0, w, 1000, Qt.AlignmentFlag.AlignCenter, text)
-            y = int(center_y - text_rect.height() / 2)
-            painter.drawText(0, y, w, text_rect.height(),
-                            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
-                            text)
-        else:
-            # Renderizar suficientes líneas
+            # Si estamos en modo edición/inserción, mostrar líneas con opacidad baja
             if self.circle_radius > 0:
                 max_lines = int(self.circle_radius / self.line_height) + 3
             else:
                 max_lines = 20
             
             for i in range(-max_lines, max_lines + 1):
-                # Calculamos la posición base con el offset de la animación
                 y_pos = center_y + (i + self._offset) * self.line_height
-                
                 text = self.ring.get(i)
                 text_rect = fm.boundingRect(0, 0, w, 1000, Qt.AlignmentFlag.AlignCenter, text)
-                
-                # Coordenada Y donde se dibuja el texto
                 draw_y = int(y_pos - text_rect.height() / 2)
-                
-                # La distancia al centro la medimos desde el centro de la línea
                 distance_from_center = abs(y_pos - center_y)
                 
-                # Calcular alpha armónico
+                # En modo edición, todas las líneas con opacidad media
+                alpha = self.calculate_alpha(distance_from_center) * 0.4
+                
+                if alpha < 0.01:
+                    continue
+                
+                painter.setOpacity(alpha)
+                painter.drawText(0, draw_y, w, text_rect.height(),
+                                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                                text)
+        else:
+            # Modo navegación normal
+            if self.circle_radius > 0:
+                max_lines = int(self.circle_radius / self.line_height) + 3
+            else:
+                max_lines = 20
+            
+            for i in range(-max_lines, max_lines + 1):
+                y_pos = center_y + (i + self._offset) * self.line_height
+                text = self.ring.get(i)
+                text_rect = fm.boundingRect(0, 0, w, 1000, Qt.AlignmentFlag.AlignCenter, text)
+                draw_y = int(y_pos - text_rect.height() / 2)
+                distance_from_center = abs(y_pos - center_y)
                 alpha = self.calculate_alpha(distance_from_center)
                 
                 if alpha < 0.01:

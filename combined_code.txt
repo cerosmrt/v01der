@@ -237,6 +237,7 @@ class CircularView(QWidget):
         self.circle_radius = 0
         self.current_animation = None
         self.edit_mode = False
+        self.insert_mode = False  # Nueva: modo insertar línea debajo
         
         # Crear el editor
         self.editor = CustomLineEdit(self)
@@ -273,14 +274,15 @@ class CircularView(QWidget):
         if self.current_animation and self.current_animation.state() == QPropertyAnimation.State.Running:
             return
         
+        # Animación simple - el move() del ring ya maneja el skip de puntos
         anim = QPropertyAnimation(self, b"offset")
-        anim.setDuration(220)
+        anim.setDuration(180)
         anim.setEasingCurve(QEasingCurve.Type.OutQuad)
         anim.setStartValue(self._offset)
         anim.setEndValue(self._offset - delta)
         
         def on_finished():
-            self.ring.move(delta)
+            self.ring.move(delta)  # Esto ya saltea puntos
             self._offset = 0.0
             self.update()
             self.current_animation = None
@@ -290,7 +292,9 @@ class CircularView(QWidget):
         self.current_animation = anim
 
     def enter_edit_mode(self):
+        """Entra en modo edición de la línea actual"""
         self.edit_mode = True
+        self.insert_mode = False
         
         center_y = self.height() // 2
         editor_width = min(self.width() - 100, 800)
@@ -306,12 +310,43 @@ class CircularView(QWidget):
         
         self.update()
 
+    def enter_insert_mode(self):
+        """Entra en modo insertar nueva línea DEBAJO de la actual"""
+        self.edit_mode = True
+        self.insert_mode = True
+        
+        center_y = self.height() // 2
+        editor_width = min(self.width() - 100, 800)
+        self.editor.setFixedWidth(editor_width)
+        
+        # Posicionar editor DEBAJO de la línea central (media línea abajo)
+        editor_y = center_y + int(self.line_height * 0.6)
+        self.editor.move((self.width() - editor_width) // 2, 
+                         editor_y - self.editor.height() // 2)
+        
+        # Editor vacío para nueva línea
+        self.editor.setText("")
+        self.editor.show()
+        self.editor.setFocus()
+        
+        print("➕ Modo insertar: Nueva línea debajo")
+        self.update()
+
     def save_edit(self):
         new_text = self.editor.text().strip()
         
         if new_text:
-            self.ring.lines[self.ring.index] = new_text
-            print(f"✅ Línea actualizada: {new_text}")
+            if self.insert_mode:
+                # Insertar NUEVA línea debajo de la actual
+                self.ring.lines.insert(self.ring.index + 1, new_text)
+                # Mover índice a la nueva línea
+                self.ring.index += 1
+                print(f"➕ Nueva línea insertada: {new_text}")
+            else:
+                # Editar línea actual
+                self.ring.lines[self.ring.index] = new_text
+                print(f"✅ Línea actualizada: {new_text}")
+            
             self.line_saved.emit()
         
         self.exit_edit_mode()
@@ -321,21 +356,18 @@ class CircularView(QWidget):
 
     def exit_edit_mode(self):
         self.edit_mode = False
+        self.insert_mode = False
         self.editor.hide()
         self.setFocus()
         self.update()
 
     def calculate_alpha(self, distance_from_center_px):
-        # 1. Distancia en unidades de línea
+        # Distancia en unidades de línea
         dist = distance_from_center_px / self.line_height
         
-        # 2. Función de Cauchy / Racional
-        # El '+ 1' asegura que en el centro (dist=0) el alpha sea 1.0
-        # El '1.5' es el factor de caída. 
-        # Si querés que el degradado sea MÁS LARGO todavía, bajá el 1.5 a 1.0 o 0.8
+        # Función de Cauchy / Racional
         alpha = 1.0 / (1.0 + 1.5 * (dist ** 2))
         
-        # Ajustamos el mínimo para que no desaparezcan tan rápido
         return max(0.02, min(self.max_alpha, alpha))
 
     def paintEvent(self, event):
@@ -348,34 +380,42 @@ class CircularView(QWidget):
         center_y = h // 2
         
         if self.edit_mode:
-            painter.setOpacity(0.2)
-            text = self.ring.current()
-            text_rect = fm.boundingRect(0, 0, w, 1000, Qt.AlignmentFlag.AlignCenter, text)
-            y = int(center_y - text_rect.height() / 2)
-            painter.drawText(0, y, w, text_rect.height(),
-                            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
-                            text)
-        else:
-            # Renderizar suficientes líneas
+            # Si estamos en modo edición/inserción, mostrar líneas con opacidad baja
             if self.circle_radius > 0:
                 max_lines = int(self.circle_radius / self.line_height) + 3
             else:
                 max_lines = 20
             
             for i in range(-max_lines, max_lines + 1):
-                # Calculamos la posición base con el offset de la animación
                 y_pos = center_y + (i + self._offset) * self.line_height
-                
                 text = self.ring.get(i)
                 text_rect = fm.boundingRect(0, 0, w, 1000, Qt.AlignmentFlag.AlignCenter, text)
-                
-                # Coordenada Y donde se dibuja el texto
                 draw_y = int(y_pos - text_rect.height() / 2)
-                
-                # La distancia al centro la medimos desde el centro de la línea
                 distance_from_center = abs(y_pos - center_y)
                 
-                # Calcular alpha armónico
+                # En modo edición, todas las líneas con opacidad media
+                alpha = self.calculate_alpha(distance_from_center) * 0.4
+                
+                if alpha < 0.01:
+                    continue
+                
+                painter.setOpacity(alpha)
+                painter.drawText(0, draw_y, w, text_rect.height(),
+                                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                                text)
+        else:
+            # Modo navegación normal
+            if self.circle_radius > 0:
+                max_lines = int(self.circle_radius / self.line_height) + 3
+            else:
+                max_lines = 20
+            
+            for i in range(-max_lines, max_lines + 1):
+                y_pos = center_y + (i + self._offset) * self.line_height
+                text = self.ring.get(i)
+                text_rect = fm.boundingRect(0, 0, w, 1000, Qt.AlignmentFlag.AlignCenter, text)
+                draw_y = int(y_pos - text_rect.height() / 2)
+                distance_from_center = abs(y_pos - center_y)
                 alpha = self.calculate_alpha(distance_from_center)
                 
                 if alpha < 0.01:
@@ -420,6 +460,7 @@ excluded_files = {
     "nuitka_build_installer.py",
     "realtime_effects.py",
     "test.py",
+    "test_circular.py",
 }
 
 included_files = []
@@ -439,115 +480,91 @@ for f in included_files:
 
 
 # --- controls.py ---
-# --- controls.py ---
+# controls.py - Controles de navegación y líneas aleatorias
 import random
 import os
 
 def setup_controls(app):
     """Configura los controles de la aplicación."""
     print("Configurando controles...")
-    # Initialize navigation state
-    app.first_up_after_submission = False  # Tracks if next Up press is first after submission
+    app.first_up_after_submission = False
 
 def show_random_line_from_current_file(app, event=None):
-    """Muestra una línea aleatoria del archivo activo, excluyendo la línea actualmente mostrada."""
+    """
+    COPIA una línea aleatoria del archivo activo al entry,
+    excluyendo la línea actual y las líneas que son solo puntos.
+    """
     try:
         if os.path.exists(app.current_file_path):
             with open(app.current_file_path, 'r', encoding='utf-8') as f:
-                lines = [line.strip() for line in f.readlines() if line.strip()]
+                lines = [line.strip() for line in f.readlines() if line.strip() and line.strip() != '.']
             
             if not lines:
-                print(f"El archivo {os.path.basename(app.current_file_path)} está vacío.")
-                app.current_active_line = None
-                app.current_active_line_index = None
-                app.first_up_after_submission = False
-                app.entry.clear()
+                print(f"El archivo {os.path.basename(app.current_file_path)} no tiene líneas válidas.")
                 return
             
-            # Exclude current line if it exists and there are other options
-            current_line = app.current_active_line.strip() if app.current_active_line else None
+            # Exclude current line if exists and there are other options
+            current_line = app.entry.text().strip() if app.entry.text() else None
             available_lines = [line for line in lines if line != current_line] if current_line and len(lines) > 1 else lines
             
             if available_lines:
                 random_line = random.choice(available_lines)
-                app.current_active_line = random_line
-                with open(app.current_file_path, 'r', encoding='utf-8') as f:
-                    all_lines = f.readlines()
-                    for i, line in enumerate(all_lines):
-                        if line.strip() == random_line:
-                            app.current_active_line_index = i
-                            break
                 app.entry.setText(random_line)
                 app.entry.setCursorPosition(0)
-                app.first_up_after_submission = False  # Reset navigation state
-                print(f"Línea aleatoria mostrada del archivo activo: {random_line}")
+                print(f"📋 Ctrl+. | Línea copiada del archivo activo: '{random_line}'")
             else:
-                print(f"Solo hay una línea disponible en {os.path.basename(app.current_file_path)}.")
-                app.entry.setText(lines[0])  # Fallback to the only line
+                app.entry.setText(lines[0])
                 app.entry.setCursorPosition(0)
-                app.current_active_line = lines[0]
-                app.current_active_line_index = lines.index(lines[0])
-                app.first_up_after_submission = False
         else:
             print(f"El archivo {os.path.basename(app.current_file_path)} no existe.")
-            app.current_active_line = None
-            app.current_active_line_index = None
-            app.first_up_after_submission = False
             app.entry.clear()
     except Exception as e:
-        print(f"Error al mostrar línea aleatoria del archivo activo: {e}")
-        app.current_active_line = None
-        app.current_active_line_index = None
-        app.first_up_after_submission = False
+        print(f"Error al copiar línea aleatoria del archivo activo: {e}")
         app.entry.clear()
 
+
 def show_random_line_from_random_file(app, event=None):
-    """Muestra una línea aleatoria de un archivo .txt aleatorio, excluyendo el archivo activo."""
+    """
+    COPIA una línea aleatoria de un archivo .txt aleatorio (EXCLUYENDO 0.txt),
+    incluyendo subcarpetas. La línea se copia al entry para editar.
+    """
     try:
-        if not app.txt_files:
-            print("No hay archivos .txt disponibles para seleccionar.")
-            app.current_active_line = None
-            app.current_active_line_index = None
-            app.first_up_after_submission = False
-            app.entry.clear()
+        # Escanear todos los .txt en void_dir incluyendo subcarpetas
+        all_txt_files = []
+        for root, dirs, files in os.walk(app.void_dir):
+            for file in files:
+                if file.lower().endswith('.txt'):
+                    full_path = os.path.join(root, file)
+                    # Excluir 0.txt
+                    if os.path.basename(full_path) != '0.txt':
+                        all_txt_files.append(full_path)
+        
+        if not all_txt_files:
+            print("❌ No hay archivos .txt disponibles (excluyendo 0.txt).")
             return
         
-        # Exclude current file if there are other options
-        available_files = [f for f in app.txt_files if f != app.current_file_path] if len(app.txt_files) > 1 else app.txt_files
-        random_file = random.choice(available_files)
-        app.switch_to_file(random_file)
+        # Elegir archivo random
+        random_file = random.choice(all_txt_files)
         
+        # Leer líneas válidas (excluir puntos)
         with open(random_file, 'r', encoding='utf-8') as f:
-            lines = [line.strip() for line in f.readlines() if line.strip()]
+            lines = [line.strip() for line in f.readlines() if line.strip() and line.strip() != '.']
         
         if lines:
             random_line = random.choice(lines)
-            app.current_active_line = random_line
-            with open(random_file, 'r', encoding='utf-8') as f:
-                all_lines = f.readlines()
-                for i, line in enumerate(all_lines):
-                    if line.strip() == random_line:
-                        app.current_active_line_index = i
-                        break
             app.entry.setText(random_line)
             app.entry.setCursorPosition(0)
-            app.first_up_after_submission = False  # Reset navigation state
-            print(f"Línea aleatoria mostrada del archivo {os.path.basename(random_file)}: {random_line}")
+            rel_path = os.path.relpath(random_file, app.void_dir)
+            print(f"📋 Ctrl+0 | Línea copiada de '{rel_path}': '{random_line}'")
         else:
-            print(f"El archivo {os.path.basename(random_file)} está vacío.")
-            app.current_active_line = None
-            app.current_active_line_index = None
-            app.first_up_after_submission = False
-            app.entry.clear()
+            print(f"El archivo {os.path.basename(random_file)} no tiene líneas válidas.")
+            
     except Exception as e:
-        print(f"Error al mostrar línea aleatoria de archivo aleatorio: {e}")
-        app.current_active_line = None
-        app.current_active_line_index = None
-        app.first_up_after_submission = False
-        app.entry.clear()
+        print(f"Error al copiar línea aleatoria de archivo random: {e}")
+
 
 def show_previous_current_file_line(app, event=None):
-    """Muestra la línea anterior en el archivo activo, con lógica especial para la primera pulsación y navegación circular."""
+    """Muestra la línea anterior en el archivo activo, con navegación circular."""
     try:
         if os.path.exists(app.current_file_path):
             with open(app.current_file_path, 'r', encoding='utf-8') as f:
@@ -565,22 +582,22 @@ def show_previous_current_file_line(app, event=None):
             if app.first_up_after_submission and hasattr(app, 'last_inserted_index') and app.last_inserted_index is not None:
                 if app.last_inserted_index < len(lines) and lines[app.last_inserted_index].strip():
                     app.current_active_line = lines[app.last_inserted_index].strip()
-                    app.current_active_line_index = app.last_inserted_index  # Set index for next navigation
+                    app.current_active_line_index = app.last_inserted_index
                     app.entry.setText(app.current_active_line)
                     app.entry.setCursorPosition(0)
-                    app.first_up_after_submission = False  # Allow normal navigation next time
+                    app.first_up_after_submission = False
                     print(f"Primera flecha arriba: Mostrando última línea enviada: {app.current_active_line}")
                     return
             
-            # Normal navigation: Find previous non-empty line with looping
+            # Normal navigation: Find previous non-empty line (skip dots)
             current_index = app.current_active_line_index if app.current_active_line_index is not None else len(lines)
             new_index = current_index - 1
             
-            # If at start, loop to last non-empty line
+            # Loop if at start
             if new_index < 0:
                 new_index = len(lines) - 1
                 while new_index >= 0:
-                    if lines[new_index].strip():
+                    if lines[new_index].strip() and lines[new_index].strip() != '.':
                         app.current_active_line_index = new_index
                         app.current_active_line = lines[new_index].strip()
                         app.entry.setText(app.current_active_line)
@@ -590,9 +607,9 @@ def show_previous_current_file_line(app, event=None):
                         return
                     new_index -= 1
             
-            # Find previous non-empty line
+            # Find previous non-empty line (skip dots)
             while new_index >= 0:
-                if lines[new_index].strip():
+                if lines[new_index].strip() and lines[new_index].strip() != '.':
                     app.current_active_line_index = new_index
                     app.current_active_line = lines[new_index].strip()
                     app.entry.setText(app.current_active_line)
@@ -602,20 +619,7 @@ def show_previous_current_file_line(app, event=None):
                     return
                 new_index -= 1
             
-            # If no previous non-empty line, loop to last non-empty line
-            new_index = len(lines) - 1
-            while new_index >= 0:
-                if lines[new_index].strip():
-                    app.current_active_line_index = new_index
-                    app.current_active_line = lines[new_index].strip()
-                    app.entry.setText(app.current_active_line)
-                    app.entry.setCursorPosition(0)
-                    app.first_up_after_submission = False
-                    print(f"Loop a última línea: {app.current_active_line}")
-                    return
-                new_index -= 1
-            
-            print("No hay líneas no vacías en el archivo.")
+            print("No hay líneas válidas en el archivo.")
             app.current_active_line = None
             app.current_active_line_index = None
             app.first_up_after_submission = False
@@ -633,6 +637,7 @@ def show_previous_current_file_line(app, event=None):
         app.first_up_after_submission = False
         app.entry.clear()
 
+
 def show_next_current_file_line(app, event=None):
     """Muestra la línea siguiente en el archivo activo, con navegación circular."""
     try:
@@ -648,15 +653,15 @@ def show_next_current_file_line(app, event=None):
                 app.entry.clear()
                 return
             
-            # If index is None (e.g., empty input), start from last_inserted_index
+            # If index is None, start from last_inserted_index
             current_index = (app.last_inserted_index if hasattr(app, 'last_inserted_index') and app.last_inserted_index is not None else -1) if app.current_active_line_index is None else app.current_active_line_index
             new_index = current_index + 1
             
-            # If past end, loop to first non-empty line
+            # Loop if past end
             if new_index >= len(lines):
                 new_index = 0
                 while new_index < len(lines):
-                    if lines[new_index].strip():
+                    if lines[new_index].strip() and lines[new_index].strip() != '.':
                         app.current_active_line_index = new_index
                         app.current_active_line = lines[new_index].strip()
                         app.entry.setText(app.current_active_line)
@@ -666,9 +671,9 @@ def show_next_current_file_line(app, event=None):
                         return
                     new_index += 1
             
-            # Find next non-empty line
+            # Find next non-empty line (skip dots)
             while new_index < len(lines):
-                if lines[new_index].strip():
+                if lines[new_index].strip() and lines[new_index].strip() != '.':
                     app.current_active_line_index = new_index
                     app.current_active_line = lines[new_index].strip()
                     app.entry.setText(app.current_active_line)
@@ -678,20 +683,7 @@ def show_next_current_file_line(app, event=None):
                     return
                 new_index += 1
             
-            # If no next non-empty line, loop to first non-empty line
-            new_index = 0
-            while new_index < len(lines):
-                if lines[new_index].strip():
-                    app.current_active_line_index = new_index
-                    app.current_active_line = lines[new_index].strip()
-                    app.entry.setText(app.current_active_line)
-                    app.entry.setCursorPosition(0)
-                    app.first_up_after_submission = False
-                    print(f"Loop a primera línea: {app.current_active_line}")
-                    return
-                new_index += 1
-            
-            print("No hay líneas no vacías en el archivo.")
+            print("No hay líneas válidas en el archivo.")
             app.current_active_line = None
             app.current_active_line_index = None
             app.first_up_after_submission = False
@@ -1055,6 +1047,7 @@ def void_line(app, event=None):
         app.entry.setFocus()
 
 # --- line_ring.py ---
+# line_ring.py - Estructura circular de líneas con navegación mejorada
 class LineRing:
     def __init__(self, lines=None):
         self.lines = list(lines) if lines else [""]
@@ -1064,9 +1057,27 @@ class LineRing:
         return self.lines[self.index]
 
     def move(self, delta):
+        """Mueve el índice saltando líneas que son solo puntos '.'"""
         if not self.lines:
             return
-        self.index = (self.index + delta) % len(self.lines)
+        
+        # Guardar posición inicial para evitar loops infinitos
+        start_index = self.index
+        moves = 0
+        max_moves = len(self.lines)
+        
+        while moves < max_moves:
+            self.index = (self.index + delta) % len(self.lines)
+            moves += 1
+            
+            # Si la línea no es solo un punto, detener
+            if self.lines[self.index].strip() != '.':
+                return
+            
+            # Si todas las líneas son puntos, volver al inicio
+            if moves >= max_moves:
+                self.index = start_index
+                return
 
     def get(self, offset=0):
         if not self.lines:
@@ -1093,160 +1104,98 @@ class LineRing:
         return self.lines[self.index:] + self.lines[:self.index]
 
 # --- new_interface.py ---
+# new_interface.py - App principal con sistema de 3 vistas sincronizadas
 import os
 import sys
-import numpy as np
-from PyQt6.QtWidgets import QApplication, QMainWindow, QLineEdit, QLabel, QWidget
-from PyQt6.QtGui import QColor, QPainter, QFont, QCursor, QPen, QPixmap, QImage
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget
+from PyQt6.QtGui import QFont, QCursor
+from PyQt6.QtCore import Qt
 
 from files import setup_file_handling, void_line
-from controls import setup_controls, show_random_line_from_current_file, show_previous_current_file_line, show_next_current_file_line, show_random_line_from_random_file
+from controls import setup_controls, show_previous_current_file_line, show_next_current_file_line
 from noise_controls import NoiseController
 from line_ring import LineRing
 from circular_view import CircularView
-
-class CustomLineEdit(QLineEdit):
-    spacePressed = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.parent = parent
-
-    def keyPressEvent(self, event):
-        key = event.key()
-        modifiers = event.modifiers()
-
-        if key == Qt.Key.Key_Space:
-            if self.parent.use_spacebar_for_void:
-                self.spacePressed.emit()
-                event.accept()
-                return
-            super().keyPressEvent(event)
-            return
-
-        if key == Qt.Key.Key_0 and (modifiers & Qt.KeyboardModifier.ControlModifier):
-            show_random_line_from_random_file(self.parent, event)
-            event.accept()
-        elif key == Qt.Key.Key_Period and (modifiers & Qt.KeyboardModifier.ControlModifier):
-            show_random_line_from_current_file(self.parent, event)
-            event.accept()
-        else:
-            super().keyPressEvent(event)
-
-
-class CircleBackground(QWidget):
-    def __init__(self, parent=None, center_x=0, center_y=0, radius=0):
-        super().__init__(parent)
-        self.center_x = center_x
-        self.center_y = center_y
-        self.radius = radius
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pen = QPen(QColor("white"), 10)
-        painter.setPen(pen)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawEllipse(self.center_x - self.radius, self.center_y - self.radius,
-                            self.radius * 2, self.radius * 2)
-
-    def resizeEvent(self, event):
-        self.resize(self.parent().size())
-
-
-class NoiseOverlay(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.noise_pixmap = None
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.generate_noise)
-        self.timer.start(50)
-
-    def generate_noise(self):
-        block_size = 1
-        w, h = self.width(), self.height()
-        h_blocks, w_blocks = h // block_size, w // block_size
-        noise_gray = np.random.randint(0, 256, (h_blocks, w_blocks), dtype=np.uint8)
-        image = QImage(noise_gray.data, w_blocks, h_blocks, w_blocks, QImage.Format.Format_Grayscale8)
-        image = image.scaled(w, h, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.FastTransformation)
-        self.noise_pixmap = QPixmap.fromImage(image)
-        self.update()
-
-    def paintEvent(self, event):
-        if self.noise_pixmap:
-            painter = QPainter(self)
-            painter.setOpacity(0.09)
-            painter.drawPixmap(0, 0, self.noise_pixmap)
+from widgets import CustomLineEdit, NoiseOverlay
+from views import NormalView, VersesView, sync_ring_with_file
 
 
 class FullscreenCircleApp(QMainWindow):
+    """Aplicación principal fullscreen con 3 vistas (F1/F2/F3) sincronizadas"""
+    
     def __init__(self, read_dir=None, void_dir=None, file_to_open=None):
         super().__init__()
+        
+        # Configuración inicial
         self.opacity = 1.0
         self.read_dir = read_dir
         self.void_dir = void_dir
         self.file_to_open = file_to_open
         self.txt_files = []
         self.current_file_index = 0
-
+        self.current_view = 0  # 0=F1, 1=F2, 2=F3
+        self.use_spacebar_for_void = False
+        
+        # Configuración de ventana
         self.setWindowTitle("Voider")
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
-        self.setStyleSheet("background-color: black;")
+        self.setStyleSheet("background-color: black; color: white;")
 
+        # Entry de texto personalizado
         self.entry = CustomLineEdit(self)
         self.entry.setFont(QFont("Consolas", 11))
         self.entry.setStyleSheet("""
             QLineEdit {
-                background-color: black;
+                background: transparent;
                 color: white;
                 border: none;
-                qproperty-alignment: AlignCenter;
                 selection-background-color: white;
                 selection-color: black;
             }
         """)
+        self.entry.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.entry.setFocus()
 
-        self.loading = QLabel("Loading potentiality", self)
-        self.loading.setFont(QFont("Consolas", 11))
-        self.loading.setStyleSheet("color: white; background-color: black;")
-        self.loading.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.loading.resize(300, 100)
-        self.loading.hide()
-
+        # Controlador de ruido audio
         self.noise_controller = NoiseController(
             block_size=1024, volume=0.3, noise_type='brown',
             bitcrush={'bit_depth': 10, 'sample_rate_factor': 0.7},
             lfo_min_freq=0.03, lfo_max_freq=0.1, glitch_prob=0.005, cutoff_freq=2500
         )
 
-        # ── Modo circular ────────────────────────────────
-        self.circular_mode = False
-        self.line_ring = None
-        self.circular_view = None
-        # ─────────────────────────────────────────────────
+        # Ring de líneas (estructura de datos central)
+        self.line_ring = LineRing()
 
+        # Stack de vistas
+        self.stack = QStackedWidget()
+        self.normal_view = NormalView(self)
+        self.circular_view = None  # Se crea lazy
+        self.verses_view = None    # Se crea lazy
+        self.stack.addWidget(self.normal_view)
+
+        # Setup lógico de voider
         self.setup_voider_logic()
-
-        self.use_spacebar_for_void = False
+        
+        # Configuración de tecla void (Enter o Spacebar)
         self._print_void_mode_status()
         self._void_enter_connection = None
         self._void_space_connection = None
         self._connect_void_key()
-
+        
+        # Inicializar UI
         self.init_ui()
+        
+        # Empezar en F1 con entry vacío
+        self.switch_to_view(0)
+        self.entry.clear()
 
-    # Métodos para modo void (Enter / Space) ─────────────
     def _print_void_mode_status(self):
-        print("VOID MODE:", "Spacebar" if self.use_spacebar_for_void else "Enter", "(F2 para cambiar)")
+        """Imprime el modo de void actual"""
+        print("VOID MODE:", "Spacebar" if self.use_spacebar_for_void else "Enter")
 
     def _connect_void_key(self):
+        """Conecta la tecla de void (Enter o Spacebar)"""
         self._disconnect_void_key()
         if self.use_spacebar_for_void:
             self._void_space_connection = self.entry.spacePressed.connect(lambda: void_line(self))
@@ -1254,48 +1203,98 @@ class FullscreenCircleApp(QMainWindow):
             self._void_enter_connection = self.entry.returnPressed.connect(lambda: void_line(self))
 
     def _disconnect_void_key(self):
+        """Desconecta las señales de void anteriores"""
         if self._void_enter_connection:
-            try: self.entry.returnPressed.disconnect(self._void_enter_connection)
-            except: pass
+            try: 
+                self.entry.returnPressed.disconnect(self._void_enter_connection)
+            except: 
+                pass
             self._void_enter_connection = None
         if self._void_space_connection:
-            try: self.entry.spacePressed.disconnect(self._void_space_connection)
-            except: pass
+            try: 
+                self.entry.spacePressed.disconnect(self._void_space_connection)
+            except: 
+                pass
             self._void_space_connection = None
 
     def toggle_void_key_mode(self):
+        """Alterna entre Enter y Spacebar como tecla de void"""
         self.use_spacebar_for_void = not self.use_spacebar_for_void
         self._print_void_mode_status()
         self._connect_void_key()
-        self.entry.setFocus()
 
-    # Toggle modo circular ───────────────────────────────
-    def toggle_circular_mode(self):
-        self.circular_mode = not self.circular_mode
+    def switch_to_view(self, view_index):
+        """
+        Cambia entre vistas F1/F2/F3 PRESERVANDO el índice del ring.
+        Esta es la función clave para la sincronización.
+        """
+        old_view = self.current_view
+        self.current_view = view_index
+        
+        # SIEMPRE sincronizar ring con archivo cuando cambias de vista
+        # Esto asegura que F2/F3 vean los cambios hechos en F1
+        sync_ring_with_file(self)
+        
+        print(f"📍 F{old_view+1} → F{view_index+1} | Índice: {self.line_ring.index} | Línea: '{self.line_ring.current()}'")
 
-        if self.circular_mode:
-            try:
-                with open(self.current_file_path, 'r', encoding='utf-8') as f:
-                    lines = [l.strip() for l in f if l.strip()]
-                self.line_ring = LineRing(lines or [""])
-            except:
-                self.line_ring = LineRing([""])
-
-            self.circular_view = CircularView(self.line_ring, self)
-            self.circular_view.resize(self.size())
-            self.circular_view.show()
-            self.entry.hide()
-            self.circular_view.setFocus()
-        else:
-            if self.circular_view:
-                self.circular_view.deleteLater()
-                self.circular_view = None
+        if view_index == 0:  # F1 - Vista normal con círculo
+            self.stack.setCurrentWidget(self.normal_view)
             self.entry.show()
+            self.entry.raise_()
+            
+            # Mostrar la línea actual del ring en el entry
+            self.entry.setText(self.line_ring.current())
+            self.entry.setCursorPosition(0)
             self.entry.setFocus()
 
-    # ─────────────────────────────────────────────────────
+        elif view_index == 1:  # F2 - Vista circular
+            # Crear vista circular si no existe
+            if not self.circular_view:
+                self.circular_view = CircularView(self.line_ring, self)
+                self.circular_view.setFont(QFont("Consolas", 11))
+                self.circular_view.line_saved.connect(self.auto_save_circular)
+                self.stack.addWidget(self.circular_view)
+            else:
+                # IMPORTANTE: Actualizar referencia al ring Y resetear offset
+                self.circular_view.ring = self.line_ring
+                self.circular_view._offset = 0.0
+
+            self.stack.setCurrentWidget(self.circular_view)
+            self.entry.hide()
+            self.circular_view.setFocus()
+            self.circular_view.update()
+
+        elif view_index == 2:  # F3 - Vista de versos
+            # Crear vista de versos si no existe
+            if not self.verses_view:
+                self.verses_view = VersesView(self.line_ring, self)
+                self.stack.addWidget(self.verses_view)
+            else:
+                # Actualizar referencia al ring (mantiene índice)
+                self.verses_view.ring = self.line_ring
+
+            verses = self.verses_view.calculate_verses()
+            verse_idx = self.verses_view.find_current_verse()
+            print(f"   └─ Verso {verse_idx+1}/{len(verses)}")
+
+            self.stack.setCurrentWidget(self.verses_view)
+            self.entry.hide()
+            self.verses_view.setFocus()
+            self.verses_view.update()
+
+    def auto_save_circular(self):
+        """Guarda cambios desde F2 sin recargar"""
+        try:
+            with open(self.current_file_path, 'w', encoding='utf-8') as f:
+                for line in self.line_ring.lines:
+                    f.write(line + '\n')
+            print(f"💾 Guardado desde F2 (índice={self.line_ring.index})")
+            # NO resincronizar - el ring ya tiene los cambios correctos
+        except Exception as e:
+            print(f"❌ Error al guardar: {e}")
 
     def setup_voider_logic(self):
+        """Inicializa la lógica de voider (archivos, controles)"""
         self.current_file_path = self.file_to_open or os.path.join(self.void_dir, '0.txt')
         self.void_file_path = os.path.join(self.void_dir, '0.txt')
         self.scan_txt_files()
@@ -1303,10 +1302,15 @@ class FullscreenCircleApp(QMainWindow):
         setup_controls(self)
 
     def scan_txt_files(self):
+        """Escanea archivos .txt en el directorio void"""
         dir_path = os.path.dirname(self.current_file_path)
-        self.txt_files = [os.path.join(dir_path, f) for f in os.listdir(dir_path)
-                          if f.lower().endswith('.txt') and os.path.isfile(os.path.join(dir_path, f))]
+        self.txt_files = [
+            os.path.join(dir_path, f) 
+            for f in os.listdir(dir_path)
+            if f.lower().endswith('.txt') and os.path.isfile(os.path.join(dir_path, f))
+        ]
         self.txt_files.sort()
+        
         if self.current_file_path in self.txt_files:
             self.current_file_index = self.txt_files.index(self.current_file_path)
         else:
@@ -1315,114 +1319,207 @@ class FullscreenCircleApp(QMainWindow):
             self.current_file_index = self.txt_files.index(self.current_file_path)
 
     def switch_to_file(self, file_path):
+        """Cambia al archivo especificado y resetea índice al inicio"""
         if not os.path.exists(file_path):
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write('')
+        
         self.current_file_path = file_path
         self.current_file_index = self.txt_files.index(file_path)
         self.entry.clear()
+        
+        # Resetear índice al cambiar de archivo
+        self.line_ring.index = 0
+        print(f"📂 Archivo: {os.path.basename(file_path)}")
+        sync_ring_with_file(self)
+        
+        # Actualizar vista actual
+        self.switch_to_view(self.current_view)
 
     def show_previous_file(self):
-        if not self.txt_files: return
+        """Alt+Up: Archivo anterior"""
+        if not self.txt_files: 
+            return
         self.current_file_index = (self.current_file_index - 1) % len(self.txt_files)
         self.switch_to_file(self.txt_files[self.current_file_index])
 
     def show_next_file(self):
-        if not self.txt_files: return
+        """Alt+Down: Archivo siguiente"""
+        if not self.txt_files: 
+            return
         self.current_file_index = (self.current_file_index + 1) % len(self.txt_files)
         self.switch_to_file(self.txt_files[self.current_file_index])
 
     def init_ui(self):
+        """Inicializa la interfaz gráfica"""
         self.showFullScreen()
         screen = self.screen().availableGeometry()
-        self.center_x = screen.width() // 2
-        self.center_y = screen.height() // 2
-        self.radius = min(screen.width(), screen.height()) // 2 - 35
-        entry_width = self.radius * 2 - 40
-
+        center_x = screen.width() // 2
+        center_y = screen.height() // 2
+        radius = min(screen.width(), screen.height()) // 2 - 35
+        entry_width = radius * 2 - 40
         self.entry.setFixedWidth(entry_width)
-        self.entry.move(self.center_x - entry_width // 2, self.center_y - self.entry.height() // 2)
+        self.entry.move(center_x - entry_width // 2, center_y - self.entry.height() // 2)
 
-        self.loading.move(self.center_x - 150, self.center_y - 50)
-        self.loading.show()
-        QTimer.singleShot(1500, self.loading.deleteLater)
-
-        self.circle_background = CircleBackground(self, self.center_x, self.center_y, self.radius)
-        self.circle_background.resize(self.size())
-        self.circle_background.show()
-
+        self.setCentralWidget(self.stack)
+        
+        # Overlay de ruido visual
         self.noise_overlay = NoiseOverlay(self)
         self.noise_overlay.resize(self.size())
         self.noise_overlay.show()
         self.noise_overlay.raise_()
 
     def resizeEvent(self, event):
+        """Maneja redimensionamiento de ventana"""
         super().resizeEvent(event)
         if hasattr(self, 'noise_overlay'):
             self.noise_overlay.resize(self.size())
-        if hasattr(self, 'circle_background'):
-            self.circle_background.resize(self.size())
-        if hasattr(self, 'circular_view') and self.circular_view:
-            self.circular_view.resize(self.size())
 
         screen = self.screen().availableGeometry()
-        self.center_x = screen.width() // 2
-        self.center_y = screen.height() // 2
-        self.radius = min(screen.width(), screen.height()) // 2 - 35
-        entry_width = self.radius * 2 - 40
+        center_x = screen.width() // 2
+        center_y = screen.height() // 2
+        entry_width = min(screen.width(), screen.height()) - 90
         self.entry.setFixedWidth(entry_width)
-        self.entry.move(self.center_x - entry_width // 2, self.center_y - self.entry.height() // 2)
+        self.entry.move(center_x - entry_width // 2, center_y - self.entry.height() // 2)
 
     def keyPressEvent(self, event):
+        """Router principal de eventos de teclado"""
         key = event.key()
         modifiers = event.modifiers()
 
-        if key == Qt.Key.Key_F2:
-            self.toggle_void_key_mode()
+        # Cambio de vistas - GLOBAL para todas
+        if key == Qt.Key.Key_F1:
+            self.switch_to_view(0)
+            event.accept()
+            return
+        elif key == Qt.Key.Key_F2:
+            self.switch_to_view(1)
+            event.accept()
+            return
+        elif key == Qt.Key.Key_F3:
+            self.switch_to_view(2)
             event.accept()
             return
 
-        if key == Qt.Key.Key_F3:           # ← tecla para toggle circular (cambia si quieres)
-            self.toggle_circular_mode()
-            event.accept()
-            return
+        # Eventos específicos por vista
+        if self.current_view == 0:  # F1
+            self._handle_f1_keys(key, modifiers)
+        elif self.current_view == 1:  # F2
+            self._handle_f2_keys(key, modifiers, event)
+        elif self.current_view == 2:  # F3
+            self._handle_f3_keys(key, modifiers)
 
-        if self.circular_mode:
-            if key == Qt.Key.Key_Up:
-                self.circular_view.animate_move(-1)
-                event.accept()
-            elif key == Qt.Key.Key_Down:
-                self.circular_view.animate_move(1)
-                event.accept()
-            elif key == Qt.Key.Key_Escape:
-                self.toggle_circular_mode()
-                event.accept()
-            return
-
-        # Modo normal
+    def _handle_f1_keys(self, key, modifiers):
+        """Manejo de teclas en vista F1"""
         if key == Qt.Key.Key_Escape:
             self.noise_controller.stop()
             self.close()
+        
+        # Ctrl+Up/Down: Opacidad
         elif key == Qt.Key.Key_Up and modifiers == Qt.KeyboardModifier.ControlModifier:
-            self.increase_opacity()
+            self.opacity = min(1.0, self.opacity + 0.1)
+            self.setWindowOpacity(self.opacity)
         elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.ControlModifier:
-            self.decrease_opacity()
+            self.opacity = max(0.0, self.opacity - 0.1)
+            self.setWindowOpacity(self.opacity)
+        
+        # Alt+Up/Down: Cambiar archivo
         elif key == Qt.Key.Key_Up and modifiers == Qt.KeyboardModifier.AltModifier:
             self.show_previous_file()
         elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.AltModifier:
             self.show_next_file()
+        
+        # Up/Down: Navegar líneas (mueve índice del ring)
         elif key == Qt.Key.Key_Up:
-            show_previous_current_file_line(self)
+            self.line_ring.move(-1)
+            self.entry.setText(self.line_ring.current())
+            self.entry.setCursorPosition(0)
+            print(f"⬆️ F1: Índice={self.line_ring.index}")
         elif key == Qt.Key.Key_Down:
-            show_next_current_file_line(self)
+            self.line_ring.move(1)
+            self.entry.setText(self.line_ring.current())
+            self.entry.setCursorPosition(0)
+            print(f"⬇️ F1: Índice={self.line_ring.index}")
 
-    def increase_opacity(self):
-        self.opacity = min(1.0, self.opacity + 0.1)
-        self.setWindowOpacity(self.opacity)
+    def _handle_f2_keys(self, key, modifiers, event):
+        """Manejo de teclas en vista F2"""
+        if self.circular_view.edit_mode:
+            if key == Qt.Key.Key_Escape:
+                self.circular_view.cancel_edit()
+                event.accept()
+        else:
+            if key == Qt.Key.Key_Up:
+                self.circular_view.animate_move(-1)
+                print(f"⬆️ F2: Índice={self.line_ring.index}")
+                event.accept()
+            elif key == Qt.Key.Key_Down:
+                self.circular_view.animate_move(1)
+                print(f"⬇️ F2: Índice={self.line_ring.index}")
+                event.accept()
+            elif key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
+                # Enter → Insertar línea debajo
+                # Shift+Enter → Editar línea actual
+                if modifiers & Qt.KeyboardModifier.ShiftModifier:
+                    self.circular_view.enter_edit_mode()
+                    print("✏️ F2: Editando línea actual")
+                else:
+                    self.circular_view.enter_insert_mode()
+                    print("➕ F2: Insertando línea debajo")
+                event.accept()
+            elif key == Qt.Key.Key_Escape:
+                self.switch_to_view(0)
 
-    def decrease_opacity(self):
-        self.opacity = max(0.0, self.opacity - 0.1)
-        self.setWindowOpacity(self.opacity)
+    def _handle_f3_keys(self, key, modifiers):
+        """Manejo de teclas en vista F3"""
+        if key == Qt.Key.Key_Escape:
+            self.noise_controller.stop()
+            self.close()
+        
+        # Ctrl+Up/Down: Opacidad
+        elif key == Qt.Key.Key_Up and modifiers == Qt.KeyboardModifier.ControlModifier:
+            self.opacity = min(1.0, self.opacity + 0.1)
+            self.setWindowOpacity(self.opacity)
+        elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.ControlModifier:
+            self.opacity = max(0.0, self.opacity - 0.1)
+            self.setWindowOpacity(self.opacity)
+        
+        # Alt+Up/Down: Cambiar archivo
+        elif key == Qt.Key.Key_Up and modifiers == Qt.KeyboardModifier.AltModifier:
+            self.show_previous_file()
+        elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.AltModifier:
+            self.show_next_file()
+        
+        # Up/Down: Navegar BLOQUES (no líneas individuales)
+        elif key == Qt.Key.Key_Up:
+            verses = self.verses_view.calculate_verses()
+            if not verses:
+                return
+            
+            current = self.verses_view.find_current_verse()
+            new_verse = (current - 1) % len(verses)
+            
+            # Mover índice al INICIO del bloque anterior
+            self.line_ring.index = verses[new_verse]['start']
+            self.verses_view.update()
+            print(f"⬆️ F3: Bloque {new_verse+1}/{len(verses)} | Índice={self.line_ring.index}")
+            
+        elif key == Qt.Key.Key_Down:
+            verses = self.verses_view.calculate_verses()
+            if not verses:
+                return
+            
+            current = self.verses_view.find_current_verse()
+            new_verse = (current + 1) % len(verses)
+            
+            # Mover índice al INICIO del bloque siguiente
+            self.line_ring.index = verses[new_verse]['start']
+            self.verses_view.update()
+            print(f"⬇️ F3: Bloque {new_verse+1}/{len(verses)} | Índice={self.line_ring.index}")
+        
+        # Enter: Ir a F2 para editar la línea actual
+        elif key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
+            print(f"↩️ F3→F2: Editando índice={self.line_ring.index}")
+            self.switch_to_view(1)
 
 
 if __name__ == '__main__':
@@ -1580,116 +1677,6 @@ class NoiseController:
         self.cutoff_freq = max(50, min(8000, cutoff))
         print(f"NoiseController: Cutoff frequency set to {self.cutoff_freq} Hz")
 
-
-# --- test_circular.py ---
-from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont, QCursor
-import sys
-import os
-
-from line_ring import LineRing
-from circular_view import CircularView
-
-
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Circular View Test")
-        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
-        self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
-        self.setStyleSheet("background: black; color: white;")
-
-        # Cargar archivo 0.txt
-        possible_paths = [
-            os.path.join("void_potential", "0.txt"),
-            os.path.join("void", "0.txt"),
-            "0.txt",
-            os.path.join(os.path.dirname(__file__), "void_potential", "0.txt"),
-            os.path.join(os.path.dirname(__file__), "void", "0.txt"),
-        ]
-        
-        lines = None
-        self.file_path = None
-        
-        for path in possible_paths:
-            if os.path.exists(path):
-                try:
-                    with open(path, encoding="utf-8") as f:
-                        lines = [l.strip() for l in f if l.strip()]
-                    self.file_path = path
-                    print(f"✅ Archivo cargado: {path}")
-                    break
-                except Exception as e:
-                    print(f"❌ Error leyendo {path}: {e}")
-        
-        if lines is None or not lines:
-            lines = [
-                "Bienvenido a Circular View",
-                "Presiona Enter para editar",
-                "Usa ↑ y ↓ para navegar",
-                "ESC para salir",
-                "Las ediciones se guardan automáticamente"
-            ]
-            print(f"⚠️ Usando líneas de ejemplo")
-
-        # Crear ring y vista
-        self.ring = LineRing(lines)
-        self.view = CircularView(self.ring, self)
-        
-        # Conectar señal de guardado automático
-        self.view.line_saved.connect(self.auto_save)
-        
-        font = QFont("Consolas", 11)
-        self.view.setFont(font)
-        
-        self.setCentralWidget(self.view)
-        self.showFullScreen()
-
-    def auto_save(self):
-        """Guarda automáticamente después de cada edición"""
-        if self.file_path:
-            try:
-                with open(self.file_path, 'w', encoding='utf-8') as f:
-                    for line in self.ring.lines:
-                        f.write(line + '\n')
-                print(f"💾 Auto-guardado en {self.file_path}")
-            except Exception as e:
-                print(f"❌ Error en auto-guardado: {e}")
-
-    def keyPressEvent(self, event):
-        """Captura las teclas de navegación y edición"""
-        key = event.key()
-        
-        if self.view.edit_mode:
-            # En modo edición, ESC cancela (Enter lo maneja el editor)
-            if key == Qt.Key.Key_Escape:
-                self.view.cancel_edit()
-                event.accept()
-        else:
-            # En modo scroll
-            if key == Qt.Key.Key_Up:
-                self.view.animate_move(-1)
-                event.accept()
-            elif key == Qt.Key.Key_Down:
-                self.view.animate_move(1)
-                event.accept()
-            elif key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
-                self.view.enter_edit_mode()
-                event.accept()
-            elif key == Qt.Key.Key_Escape:
-                self.save_and_exit()
-
-    def save_and_exit(self):
-        """Guardar cambios y salir (por si acaso, aunque ya hay auto-save)"""
-        self.auto_save()  # Un último save antes de salir
-        self.close()
-
-
-if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    window = MainWindow()
-    sys.exit(app.exec())
 
 # --- test_voider.py ---
 # test_voider.py
@@ -2022,6 +2009,195 @@ def close_program(app, event=None):
 def show_cursor(app, event=None):
     app.entry.setCursorVisible(True)
 
+# --- views.py ---
+# views.py - Vistas F1, F2, F3 con sincronización de índice
+from PyQt6.QtWidgets import QWidget
+from PyQt6.QtGui import QColor, QPainter, QFont, QPen
+from PyQt6.QtCore import Qt
+
+
+class NormalView(QWidget):
+    """Vista F1: Círculo minimalista con entrada de texto central"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent_app = parent
+        self.setStyleSheet("background: black;")
+
+    def paintEvent(self, event):
+        """Dibuja un círculo blanco centrado"""
+        if not self.parent_app:
+            return
+        if self.width() == 0 or self.height() == 0:
+            return
+            
+        painter = QPainter(self)
+        if not painter.isActive():
+            return
+            
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        pen = QPen(QColor("white"), 10)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        
+        w = self.width()
+        h = self.height()
+        center_x = w // 2
+        center_y = h // 2
+        radius = min(w, h) // 2 - 35
+        
+        painter.drawEllipse(center_x - radius, center_y - radius, radius * 2, radius * 2)
+
+
+class VersesView(QWidget):
+    """Vista F3: Muestra versos/párrafos separados por puntos"""
+    
+    def __init__(self, ring, parent=None):
+        super().__init__(parent)
+        self.ring = ring
+        self.verses = []
+        self.current_verse_index = 0
+        self.setStyleSheet("background: black; color: white;")
+
+    def calculate_verses(self):
+        """
+        Calcula los versos basándose en puntos '.' como separadores.
+        Retorna lista de dicts con 'lines', 'start', 'end'.
+        """
+        verses = []
+        current_verse = []
+        start_index = 0
+        
+        for idx, line in enumerate(self.ring.lines):
+            if line.strip() == '.':
+                if current_verse:
+                    verses.append({
+                        'lines': current_verse, 
+                        'start': start_index, 
+                        'end': idx - 1
+                    })
+                    current_verse = []
+                start_index = idx + 1
+            else:
+                current_verse.append(line)
+        
+        # Último verso si no termina con punto
+        if current_verse:
+            verses.append({
+                'lines': current_verse, 
+                'start': start_index, 
+                'end': len(self.ring.lines) - 1
+            })
+        
+        # Fallback si no hay versos
+        if not verses:
+            verses.append({'lines': [""], 'start': 0, 'end': 0})
+        
+        return verses
+
+    def find_current_verse(self):
+        """Encuentra qué verso contiene el índice actual del ring"""
+        for idx, verse in enumerate(self.verses):
+            if verse['start'] <= self.ring.index <= verse['end']:
+                return idx
+        return 0
+
+    def paintEvent(self, event):
+        """Dibuja todos los versos con el actual centrado y resaltado"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        font = QFont("Consolas", 11)
+        painter.setPen(QColor("white"))
+        
+        w = self.width()
+        h = self.height()
+        line_height = 25
+        verse_spacing = 60
+
+        # Calcular versos y encontrar el actual
+        self.verses = self.calculate_verses()
+        self.current_verse_index = self.find_current_verse()
+
+        # Centrar verticalmente el verso actual
+        y_offset = h // 2 - (self.current_verse_index * (line_height * 5 + verse_spacing))
+
+        for verse_idx, verse in enumerate(self.verses):
+            is_current = (verse_idx == self.current_verse_index)
+            verse_y = y_offset
+
+            # Estilo diferente para verso actual vs otros
+            if is_current:
+                painter.setOpacity(1.0)
+                font.setPointSize(12)
+            else:
+                painter.setOpacity(0.3)
+                font.setPointSize(10)
+
+            painter.setFont(font)
+
+            # Dibujar cada línea del verso
+            for line_idx, line in enumerate(verse['lines']):
+                text_y = verse_y + (line_idx * line_height)
+                
+                # Calcular índice global de la línea
+                line_global_index = verse['start'] + line_idx
+                is_exact_line = (line_global_index == self.ring.index)
+
+                # Resaltar la línea exacta del índice actual
+                if is_current and is_exact_line:
+                    painter.setOpacity(1.0)
+                    painter.setPen(QColor("yellow"))
+                    painter.drawLine(50, text_y, 50, text_y + line_height - 5)
+                    painter.setPen(QColor("white"))
+                elif is_current:
+                    painter.setOpacity(1.0)
+                    painter.setPen(QColor("white"))
+                    painter.drawLine(50, text_y, 50, text_y + line_height - 5)
+                else:
+                    painter.setOpacity(0.3)
+                    painter.setPen(QColor("white"))
+
+                # Dibujar texto centrado
+                painter.drawText(0, text_y, w, line_height,
+                                Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignVCenter,
+                                line)
+
+            y_offset += len(verse['lines']) * line_height + verse_spacing
+
+
+def sync_ring_with_file(app):
+    """
+    Sincroniza el line_ring con el archivo actual, preservando el índice.
+    Los puntos SÍ se cargan (son visibles), pero se saltean al navegar.
+    """
+    try:
+        with open(app.current_file_path, 'r', encoding='utf-8') as f:
+            # Cargar TODAS las líneas incluyendo puntos
+            lines = [l.strip() for l in f if l.strip()]
+            
+        # Debug: contar puntos
+        num_dots = sum(1 for l in lines if l == '.')
+        print(f"   📊 Líneas cargadas: {len(lines)} (incluyendo {num_dots} puntos)")
+    except Exception as e:
+        print(f"⚠️ Error leyendo archivo: {e}")
+        lines = []
+
+    # Preservar índice si existe y es válido
+    old_index = app.line_ring.index if app.line_ring and hasattr(app.line_ring, 'index') else 0
+    
+    # Crear nuevo ring con TODAS las líneas (puntos incluidos)
+    from line_ring import LineRing
+    app.line_ring = LineRing(lines or [""])
+    
+    # Restaurar índice si sigue siendo válido
+    if old_index < len(app.line_ring.lines):
+        app.line_ring.index = old_index
+    else:
+        app.line_ring.index = max(0, len(app.line_ring.lines) - 1)
+    
+    print(f"🔄 Ring sincronizado: {len(app.line_ring.lines)} líneas, índice={app.line_ring.index}")
+    return app.line_ring
+
 # --- voider.py ---
 # --- voider.py ---
 import os
@@ -2082,5 +2258,87 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Error: {e}")
         input("Press Enter to exit...")
+
+# --- widgets.py ---
+# widgets.py - Widgets reutilizables
+import numpy as np
+from PyQt6.QtWidgets import QLineEdit, QWidget
+from PyQt6.QtGui import QPainter, QPixmap, QImage
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+
+class CustomLineEdit(QLineEdit):
+    """QLineEdit personalizado con soporte para spacebar como tecla de void"""
+    spacePressed = pyqtSignal()
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.parent = parent
+    
+    def keyPressEvent(self, event):
+        key = event.key()
+        modifiers = event.modifiers()
+        
+        # Manejo de spacebar para void
+        if key == Qt.Key.Key_Space:
+            if self.parent.use_spacebar_for_void:
+                self.spacePressed.emit()
+                event.accept()
+                return
+            super().keyPressEvent(event)
+            return
+        
+        # Atajos con Ctrl
+        if key == Qt.Key.Key_0 and (modifiers & Qt.KeyboardModifier.ControlModifier):
+            from controls import show_random_line_from_random_file
+            show_random_line_from_random_file(self.parent, event)
+            event.accept()
+        elif key == Qt.Key.Key_Period and (modifiers & Qt.KeyboardModifier.ControlModifier):
+            from controls import show_random_line_from_current_file
+            show_random_line_from_current_file(self.parent, event)
+            event.accept()
+        else:
+            super().keyPressEvent(event)
+
+
+class NoiseOverlay(QWidget):
+    """Overlay de ruido visual generativo en tiempo real"""
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.noise_pixmap = None
+        
+        # Timer para generar nuevo ruido cada 50ms
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.generate_noise)
+        self.timer.start(50)
+    
+    def generate_noise(self):
+        """Genera un patrón de ruido aleatorio tipo TV sin señal"""
+        block_size = 1
+        w, h = self.width(), self.height()
+        
+        if w == 0 or h == 0:
+            return
+            
+        h_blocks, w_blocks = h // block_size, w // block_size
+        noise_gray = np.random.randint(0, 256, (h_blocks, w_blocks), dtype=np.uint8)
+        
+        image = QImage(noise_gray.data, w_blocks, h_blocks, w_blocks, 
+                      QImage.Format.Format_Grayscale8)
+        image = image.scaled(w, h, 
+                           Qt.AspectRatioMode.IgnoreAspectRatio, 
+                           Qt.TransformationMode.FastTransformation)
+        
+        self.noise_pixmap = QPixmap.fromImage(image)
+        self.update()
+    
+    def paintEvent(self, event):
+        """Dibuja el ruido con opacidad baja"""
+        if self.noise_pixmap:
+            painter = QPainter(self)
+            painter.setOpacity(0.09)
+            painter.drawPixmap(0, 0, self.noise_pixmap)
 
 # --- __init__.py ---

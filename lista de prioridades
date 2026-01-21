@@ -1,0 +1,67 @@
+ Prioridades ordenadas:
+🔴 ALTA PRIORIDAD (Funcionalidad core que cambia el workflow)
+
+F2: Skipear líneas con solo "."
+
+Impacto: Alto | Complejidad: Baja
+Los puntos son separadores, no contenido navegable
+También en F1 y F3
+
+
+F2: Enter crea nueva línea debajo
+
+Impacto: Alto | Complejidad: Media
+Flujo natural de escritura en modo circular
+
+
+Ctrl+. traer línea random COPIADA de cualquier archivo void
+
+Impacto: Alto | Complejidad: Media
+Funciona en F1 y F2
+Cuando cursor vacío → final del archivo → traer random
+
+
+
+🟡 MEDIA PRIORIDAD (Mejoras de navegación)
+
+Alt+Up/Down: Swap líneas en F2
+
+Impacto: Medio | Complejidad: Media
+Intercambiar línea actual con anterior/siguiente
+
+
+Alt+Up/Down: Swap bloques en F3
+
+Impacto: Medio | Complejidad: Media-Alta
+Intercambiar bloque actual con anterior/siguiente
+
+
+
+🟢 BAJA PRIORIDAD (Features avanzados de loop)
+
+F3 → Enter: Loopear solo ese bloque en F2
+
+Impacto: Medio | Complejidad: Alta
+Crear "sub-ring" temporal con solo líneas del bloque
+
+
+Determinar línea/bloque 0 (inicio del loop)
+
+Impacto: Bajo-Medio | Complejidad: Alta
+Requiere nuevo estado + UI feedback
+Reordenar secuencia con nuevo origen
+
+
+------------------------------------------------------------------------------------------------
+Fase 1 (30-40 min):
+├─ 1. Skipear puntos "." en navegación F1/F2/F3 ⏱️ 10min
+├─ 2. F2 Enter → insertar línea debajo ⏱️ 15min
+└─ 3. Ctrl+. línea random (excluir 0.txt, incluir subcarpetas) ⏱️ 20min
+
+Fase 2 (40-50 min):
+├─ 4. Alt+Up/Down swap líneas F2 ⏱️ 20min
+└─ 5. Alt+Up/Down swap bloques F3 ⏱️ 30min
+
+Fase 3 (60+ min):
+├─ 6. F3→Enter loopear solo bloque (sub-ring temporal) ⏱️ 40min
+└─ 7. Ctrl+Home marcar 0 + reordenar loop ⏱️ 30min

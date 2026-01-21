@@ -1,3 +1,4 @@
+# line_ring.py - Estructura circular de líneas con navegación mejorada
 class LineRing:
     def __init__(self, lines=None):
         self.lines = list(lines) if lines else [""]
@@ -7,9 +8,27 @@ class LineRing:
         return self.lines[self.index]
 
     def move(self, delta):
+        """Mueve el índice saltando líneas que son solo puntos '.'"""
         if not self.lines:
             return
-        self.index = (self.index + delta) % len(self.lines)
+        
+        # Guardar posición inicial para evitar loops infinitos
+        start_index = self.index
+        moves = 0
+        max_moves = len(self.lines)
+        
+        while moves < max_moves:
+            self.index = (self.index + delta) % len(self.lines)
+            moves += 1
+            
+            # Si la línea no es solo un punto, detener
+            if self.lines[self.index].strip() != '.':
+                return
+            
+            # Si todas las líneas son puntos, volver al inicio
+            if moves >= max_moves:
+                self.index = start_index
+                return
 
     def get(self, offset=0):
         if not self.lines:

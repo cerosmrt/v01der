@@ -125,7 +125,8 @@ class FullscreenCircleApp(QMainWindow):
         old_view = self.current_view
         self.current_view = view_index
         
-        # Sincronizar ring con archivo (preserva índice si es posible)
+        # SIEMPRE sincronizar ring con archivo cuando cambias de vista
+        # Esto asegura que F2/F3 vean los cambios hechos en F1
         sync_ring_with_file(self)
         
         print(f"📍 F{old_view+1} → F{view_index+1} | Índice: {self.line_ring.index} | Línea: '{self.line_ring.current()}'")
@@ -148,8 +149,9 @@ class FullscreenCircleApp(QMainWindow):
                 self.circular_view.line_saved.connect(self.auto_save_circular)
                 self.stack.addWidget(self.circular_view)
             else:
-                # Actualizar referencia al ring (mantiene índice)
+                # IMPORTANTE: Actualizar referencia al ring Y resetear offset
                 self.circular_view.ring = self.line_ring
+                self.circular_view._offset = 0.0
 
             self.stack.setCurrentWidget(self.circular_view)
             self.entry.hide()
@@ -175,14 +177,13 @@ class FullscreenCircleApp(QMainWindow):
             self.verses_view.update()
 
     def auto_save_circular(self):
-        """Guarda cambios desde F2 y resincroniza el ring"""
+        """Guarda cambios desde F2 sin recargar"""
         try:
             with open(self.current_file_path, 'w', encoding='utf-8') as f:
                 for line in self.line_ring.lines:
                     f.write(line + '\n')
             print(f"💾 Guardado desde F2 (índice={self.line_ring.index})")
-            # Re-sincronizar después de guardar
-            sync_ring_with_file(self)
+            # NO resincronizar - el ring ya tiene los cambios correctos
         except Exception as e:
             print(f"❌ Error al guardar: {e}")
 
@@ -350,7 +351,14 @@ class FullscreenCircleApp(QMainWindow):
                 print(f"⬇️ F2: Índice={self.line_ring.index}")
                 event.accept()
             elif key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
-                self.circular_view.enter_edit_mode()
+                # Enter → Insertar línea debajo
+                # Shift+Enter → Editar línea actual
+                if modifiers & Qt.KeyboardModifier.ShiftModifier:
+                    self.circular_view.enter_edit_mode()
+                    print("✏️ F2: Editando línea actual")
+                else:
+                    self.circular_view.enter_insert_mode()
+                    print("➕ F2: Insertando línea debajo")
                 event.accept()
             elif key == Qt.Key.Key_Escape:
                 self.switch_to_view(0)
@@ -375,21 +383,32 @@ class FullscreenCircleApp(QMainWindow):
         elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.AltModifier:
             self.show_next_file()
         
-        # Up/Down: Navegar versos (actualiza índice del ring)
+        # Up/Down: Navegar BLOQUES (no líneas individuales)
         elif key == Qt.Key.Key_Up:
             verses = self.verses_view.calculate_verses()
+            if not verses:
+                return
+            
             current = self.verses_view.find_current_verse()
             new_verse = (current - 1) % len(verses)
+            
+            # Mover índice al INICIO del bloque anterior
             self.line_ring.index = verses[new_verse]['start']
             self.verses_view.update()
-            print(f"⬆️ F3: Verso {new_verse+1}/{len(verses)} | Índice={self.line_ring.index}")
+            print(f"⬆️ F3: Bloque {new_verse+1}/{len(verses)} | Índice={self.line_ring.index}")
+            
         elif key == Qt.Key.Key_Down:
             verses = self.verses_view.calculate_verses()
+            if not verses:
+                return
+            
             current = self.verses_view.find_current_verse()
             new_verse = (current + 1) % len(verses)
+            
+            # Mover índice al INICIO del bloque siguiente
             self.line_ring.index = verses[new_verse]['start']
             self.verses_view.update()
-            print(f"⬇️ F3: Verso {new_verse+1}/{len(verses)} | Índice={self.line_ring.index}")
+            print(f"⬇️ F3: Bloque {new_verse+1}/{len(verses)} | Índice={self.line_ring.index}")
         
         # Enter: Ir a F2 para editar la línea actual
         elif key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:

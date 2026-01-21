@@ -156,11 +156,16 @@ class VersesView(QWidget):
 def sync_ring_with_file(app):
     """
     Sincroniza el line_ring con el archivo actual, preservando el índice.
-    Esta función centraliza la lógica de carga del archivo.
+    Los puntos SÍ se cargan (son visibles), pero se saltean al navegar.
     """
     try:
         with open(app.current_file_path, 'r', encoding='utf-8') as f:
+            # Cargar TODAS las líneas incluyendo puntos
             lines = [l.strip() for l in f if l.strip()]
+            
+        # Debug: contar puntos
+        num_dots = sum(1 for l in lines if l == '.')
+        print(f"   📊 Líneas cargadas: {len(lines)} (incluyendo {num_dots} puntos)")
     except Exception as e:
         print(f"⚠️ Error leyendo archivo: {e}")
         lines = []
@@ -168,7 +173,7 @@ def sync_ring_with_file(app):
     # Preservar índice si existe y es válido
     old_index = app.line_ring.index if app.line_ring and hasattr(app.line_ring, 'index') else 0
     
-    # Crear nuevo ring con las líneas cargadas
+    # Crear nuevo ring con TODAS las líneas (puntos incluidos)
     from line_ring import LineRing
     app.line_ring = LineRing(lines or [""])
     

@@ -8,6 +8,7 @@ excluded_files = {
     "nuitka_build_installer.py",
     "realtime_effects.py",
     "test.py",
+    "test_circular.py",
 }
 
 included_files = []
