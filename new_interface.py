@@ -348,6 +348,56 @@ class FullscreenCircleApp(QMainWindow):
     def reload_ring_from_file(self):
         """Recarga el ring desde el archivo actual preservando índice"""
         sync_ring_with_file(self)
+    
+    def swap_line_up(self):
+        """Intercambia línea actual con la anterior (F2)"""
+        if len(self.line_ring.lines) < 2:
+            print("⚠️ No hay suficientes líneas para intercambiar")
+            return
+        
+        current_idx = self.line_ring.index
+        prev_idx = (current_idx - 1) % len(self.line_ring.lines)
+        
+        # Intercambiar líneas
+        self.line_ring.lines[current_idx], self.line_ring.lines[prev_idx] = \
+            self.line_ring.lines[prev_idx], self.line_ring.lines[current_idx]
+        
+        # Mover índice a donde quedó la línea
+        self.line_ring.index = prev_idx
+        
+        # Guardar cambios
+        self.auto_save_circular()
+        
+        # Actualizar vista
+        self.circular_view._offset = 0.0
+        self.circular_view.update()
+        
+        print(f"⬆️ Swap: Línea {current_idx} ↔ {prev_idx}")
+    
+    def swap_line_down(self):
+        """Intercambia línea actual con la siguiente (F2)"""
+        if len(self.line_ring.lines) < 2:
+            print("⚠️ No hay suficientes líneas para intercambiar")
+            return
+        
+        current_idx = self.line_ring.index
+        next_idx = (current_idx + 1) % len(self.line_ring.lines)
+        
+        # Intercambiar líneas
+        self.line_ring.lines[current_idx], self.line_ring.lines[next_idx] = \
+            self.line_ring.lines[next_idx], self.line_ring.lines[current_idx]
+        
+        # Mover índice a donde quedó la línea
+        self.line_ring.index = next_idx
+        
+        # Guardar cambios
+        self.auto_save_circular()
+        
+        # Actualizar vista
+        self.circular_view._offset = 0.0
+        self.circular_view.update()
+        
+        print(f"⬇️ Swap: Línea {current_idx} ↔ {next_idx}")
 
     def _handle_f2_keys(self, key, modifiers, event):
         """Manejo de teclas en vista F2"""
@@ -356,7 +406,15 @@ class FullscreenCircleApp(QMainWindow):
                 self.circular_view.cancel_edit()
                 event.accept()
         else:
-            if key == Qt.Key.Key_Up:
+            # Alt+Up/Down: Swap líneas
+            if key == Qt.Key.Key_Up and modifiers == Qt.KeyboardModifier.AltModifier:
+                self.swap_line_up()
+                event.accept()
+            elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.AltModifier:
+                self.swap_line_down()
+                event.accept()
+            # Up/Down normales: Navegación
+            elif key == Qt.Key.Key_Up:
                 self.circular_view.animate_move(-1)
                 print(f"⬆️ F2: Índice={self.line_ring.index}")
                 event.accept()
