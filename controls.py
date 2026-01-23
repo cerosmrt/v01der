@@ -81,6 +81,57 @@ def show_random_line_from_random_file(app, event=None):
         print(f"Error al copiar línea aleatoria de archivo random: {e}")
 
 
+def recycle_line_to_zero_txt(app, event=None):
+    """
+    RECICLADO (*): Muestra línea random de cualquier archivo (excluir archivo activo)
+    para pegar manualmente en el archivo activo actual. Cut-up technique.
+    
+    - NO cambia el archivo activo
+    - Solo muestra la línea en el entry
+    - El usuario decide si la pega (Enter) o descarta (Esc/borrar)
+    - Se pega en el current index del archivo activo cuando el usuario presione Enter
+    """
+    try:
+        # Escanear todos los .txt en void_dir incluyendo subcarpetas
+        all_txt_files = []
+        for root, dirs, files in os.walk(app.void_dir):
+            for file in files:
+                if file.lower().endswith('.txt'):
+                    full_path = os.path.join(root, file)
+                    # Excluir el archivo activo actual
+                    if full_path != app.current_file_path:
+                        all_txt_files.append(full_path)
+        
+        if not all_txt_files:
+            print("❌ No hay otros archivos .txt disponibles para reciclar.")
+            return
+        
+        # Elegir archivo random
+        random_file = random.choice(all_txt_files)
+        
+        # Leer líneas válidas (excluir puntos)
+        with open(random_file, 'r', encoding='utf-8') as f:
+            lines = [line.strip() for line in f.readlines() if line.strip() and line.strip() != '.']
+        
+        if lines:
+            random_line = random.choice(lines)
+            
+            # Mostrar la línea en el entry (el usuario decide si la pega)
+            app.entry.setText(random_line)
+            app.entry.setCursorPosition(0)
+            
+            rel_path_from = os.path.relpath(random_file, app.void_dir)
+            current_file = os.path.basename(app.current_file_path)
+            print(f"♻️ * | Reciclado de '{rel_path_from}' → {current_file}")
+            print(f"   Línea: '{random_line}'")
+            print(f"   (Enter para pegar, Esc para descartar)")
+        else:
+            print(f"El archivo {os.path.basename(random_file)} no tiene líneas válidas.")
+            
+    except Exception as e:
+        print(f"Error al reciclar línea: {e}")
+
+
 def show_previous_current_file_line(app, event=None):
     """Muestra la línea anterior en el archivo activo, con navegación circular."""
     try:

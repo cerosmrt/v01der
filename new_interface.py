@@ -92,9 +92,14 @@ class FullscreenCircleApp(QMainWindow):
         """Conecta la tecla de void (Enter o Spacebar)"""
         self._disconnect_void_key()
         if self.use_spacebar_for_void:
-            self._void_space_connection = self.entry.spacePressed.connect(lambda: void_line(self))
+            self._void_space_connection = self.entry.spacePressed.connect(self._handle_void_line)
         else:
-            self._void_enter_connection = self.entry.returnPressed.connect(lambda: void_line(self))
+            self._void_enter_connection = self.entry.returnPressed.connect(self._handle_void_line)
+    
+    def _handle_void_line(self):
+        """Wrapper de void_line que recarga el ring después"""
+        void_line(self)
+        self.reload_ring_from_file()  # Recargar ring después de escribir
 
     def _disconnect_void_key(self):
         """Desconecta las señales de void anteriores"""
@@ -119,16 +124,13 @@ class FullscreenCircleApp(QMainWindow):
 
     def switch_to_view(self, view_index):
         """
-        Cambia entre vistas F1/F2/F3 PRESERVANDO el índice del ring.
-        Esta es la función clave para la sincronización.
+        Cambia entre vistas F1/F2/F3 compartiendo el MISMO ring.
+        NO recarga desde disco - solo al cambiar de archivo.
         """
         old_view = self.current_view
         self.current_view = view_index
         
-        # SIEMPRE sincronizar ring con archivo cuando cambias de vista
-        # Esto asegura que F2/F3 vean los cambios hechos en F1
-        sync_ring_with_file(self)
-        
+        # NO sincronizar al cambiar de vista - solo compartir el ring actual
         print(f"📍 F{old_view+1} → F{view_index+1} | Índice: {self.line_ring.index} | Línea: '{self.line_ring.current()}'")
 
         if view_index == 0:  # F1 - Vista normal con círculo
@@ -149,7 +151,7 @@ class FullscreenCircleApp(QMainWindow):
                 self.circular_view.line_saved.connect(self.auto_save_circular)
                 self.stack.addWidget(self.circular_view)
             else:
-                # IMPORTANTE: Actualizar referencia al ring Y resetear offset
+                # Compartir el mismo ring (sin recargar)
                 self.circular_view.ring = self.line_ring
                 self.circular_view._offset = 0.0
 
@@ -164,7 +166,7 @@ class FullscreenCircleApp(QMainWindow):
                 self.verses_view = VersesView(self.line_ring, self)
                 self.stack.addWidget(self.verses_view)
             else:
-                # Actualizar referencia al ring (mantiene índice)
+                # Compartir el mismo ring (sin recargar)
                 self.verses_view.ring = self.line_ring
 
             verses = self.verses_view.calculate_verses()
@@ -194,6 +196,10 @@ class FullscreenCircleApp(QMainWindow):
         self.scan_txt_files()
         setup_file_handling(self)
         setup_controls(self)
+        
+        # Cargar ring inicial desde el archivo
+        from views import sync_ring_with_file
+        sync_ring_with_file(self)
 
     def scan_txt_files(self):
         """Escanea archivos .txt en el directorio void"""
@@ -328,12 +334,20 @@ class FullscreenCircleApp(QMainWindow):
             self.line_ring.move(-1)
             self.entry.setText(self.line_ring.current())
             self.entry.setCursorPosition(0)
+            # Sincronizar índice para void_line()
+            self.current_active_line_index = self.line_ring.index
             print(f"⬆️ F1: Índice={self.line_ring.index}")
         elif key == Qt.Key.Key_Down:
             self.line_ring.move(1)
             self.entry.setText(self.line_ring.current())
             self.entry.setCursorPosition(0)
+            # Sincronizar índice para void_line()
+            self.current_active_line_index = self.line_ring.index
             print(f"⬇️ F1: Índice={self.line_ring.index}")
+    
+    def reload_ring_from_file(self):
+        """Recarga el ring desde el archivo actual preservando índice"""
+        sync_ring_with_file(self)
 
     def _handle_f2_keys(self, key, modifiers, event):
         """Manejo de teclas en vista F2"""

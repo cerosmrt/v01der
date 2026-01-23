@@ -16,6 +16,13 @@ class CustomLineEdit(QLineEdit):
         key = event.key()
         modifiers = event.modifiers()
         
+        # Asterisco * para reciclado (interceptar ANTES de escribir)
+        if key == Qt.Key.Key_Asterisk or (key == Qt.Key.Key_8 and (modifiers & Qt.KeyboardModifier.ShiftModifier)):
+            from controls import recycle_line_to_zero_txt
+            recycle_line_to_zero_txt(self.parent, event)
+            event.accept()
+            return  # IMPORTANTE: return para no seguir procesando
+        
         # Manejo de spacebar para void
         if key == Qt.Key.Key_Space:
             if self.parent.use_spacebar_for_void:
