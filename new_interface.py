@@ -300,6 +300,12 @@ class FullscreenCircleApp(QMainWindow):
             self.switch_to_view(2)
             event.accept()
             return
+        
+        # Ctrl+9: Rebase to index 0
+        if key == Qt.Key.Key_9 and modifiers == Qt.KeyboardModifier.ControlModifier:
+            self.rebase_to_index_zero()
+            event.accept()
+            return
 
         # Eventos específicos por vista
         if self.current_view == 0:  # F1
@@ -506,6 +512,32 @@ class FullscreenCircleApp(QMainWindow):
         self.verses_view.update()
         
         print(f"⬇️ Swap bloque: {current_verse_idx+1} ↔ {next_verse_idx+1}")
+
+    def rebase_to_index_zero(self):
+        """Ctrl+9: Reordena para que línea/bloque actual sea el nuevo índice 0"""
+        if self.current_view == 0:  # F1
+            print("⚠️ Rebase no disponible en F1")
+            return
+        
+        # Ejecutar rebase
+        self.line_ring.rebase_to_current()
+        
+        # Guardar al archivo
+        try:
+            with open(self.current_file_path, 'w', encoding='utf-8') as f:
+                for line in self.line_ring.lines:
+                    f.write(line + '\n')
+            print(f"💾 Rebase | Nueva línea 0: '{self.line_ring.current()[:50]}...'")
+        except Exception as e:
+            print(f"❌ Error: {e}")
+        
+        # Actualizar vista
+        if self.current_view == 1:  # F2
+            self.circular_view._offset = 0.0
+            self.circular_view.update()
+        elif self.current_view == 2:  # F3
+            self.verses_view._cached_ring_lines = None
+            self.verses_view.update()
 
     def _handle_f2_keys(self, key, modifiers, event):
         """Manejo de teclas en vista F2"""

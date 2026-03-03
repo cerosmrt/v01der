@@ -53,3 +53,18 @@ class LineRing:
     def to_list_from_current(self):
         """Para exportar/imprimir con la línea actual primero"""
         return self.lines[self.index:] + self.lines[:self.index]
+    
+    def rebase_to_current(self):
+        """
+        Reordena circularmente para que la línea actual sea el nuevo índice 0.
+        Ejemplo: [a, b, c, d, e] con index=2 → [c, d, e, a, b] con index=0
+        """
+        if not self.lines or self.index == 0:
+            return  # Ya está en 0 o está vacío
+        
+        # Reordenar circularmente
+        new_lines = self.lines[self.index:] + self.lines[:self.index]
+        self.lines = new_lines
+        self.index = 0
+        
+        print(f"🔄 Rebase: Nueva primera línea: '{self.lines[0][:50]}...'")
