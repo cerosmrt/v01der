@@ -398,6 +398,114 @@ class FullscreenCircleApp(QMainWindow):
         self.circular_view.update()
         
         print(f"⬇️ Swap: Línea {current_idx} ↔ {next_idx}")
+    
+    def swap_block_up(self):
+        """Intercambia bloque actual con el anterior (F3)"""
+        verses = self.verses_view.calculate_verses()
+        if len(verses) < 2:
+            print("⚠️ No hay suficientes bloques para intercambiar")
+            return
+        
+        current_verse_idx = self.verses_view.find_current_verse()
+        prev_verse_idx = (current_verse_idx - 1) % len(verses)
+        
+        current_verse = verses[current_verse_idx]
+        prev_verse = verses[prev_verse_idx]
+        
+        # Extraer bloques completos (con punto inicial si lo tienen)
+        current_block_start = current_verse['start']
+        current_block_end = current_verse['end']
+        prev_block_start = prev_verse['start']
+        prev_block_end = prev_verse['end']
+        
+        # Extraer líneas de cada bloque
+        current_block = self.line_ring.lines[current_block_start:current_block_end + 1]
+        prev_block = self.line_ring.lines[prev_block_start:prev_block_end + 1]
+        
+        # Caso especial: si son adyacentes
+        if prev_block_end + 1 == current_block_start or (prev_verse_idx > current_verse_idx):
+            # Bloques adyacentes o wrap-around
+            # Construir nueva lista: antes de prev + current + prev + después de current
+            new_lines = (
+                self.line_ring.lines[:prev_block_start] +
+                current_block +
+                prev_block +
+                self.line_ring.lines[current_block_end + 1:]
+            )
+            # Nuevo índice: donde empezó prev_block, ahora está current_block
+            new_index = prev_block_start
+        else:
+            # Bloques no adyacentes
+            new_lines = self.line_ring.lines[:]
+            # Reemplazar bloques
+            new_lines[prev_block_start:prev_block_end + 1] = current_block
+            new_lines[current_block_start:current_block_end + 1] = prev_block
+            new_index = prev_block_start
+        
+        # Actualizar ring
+        self.line_ring.lines = new_lines
+        self.line_ring.index = new_index
+        
+        # Guardar y actualizar
+        self.auto_save_circular()
+        self.verses_view._cached_ring_lines = None  # Forzar recálculo
+        self.verses_view.update()
+        
+        print(f"⬆️ Swap bloque: {current_verse_idx+1} ↔ {prev_verse_idx+1}")
+    
+    def swap_block_down(self):
+        """Intercambia bloque actual con el siguiente (F3)"""
+        verses = self.verses_view.calculate_verses()
+        if len(verses) < 2:
+            print("⚠️ No hay suficientes bloques para intercambiar")
+            return
+        
+        current_verse_idx = self.verses_view.find_current_verse()
+        next_verse_idx = (current_verse_idx + 1) % len(verses)
+        
+        current_verse = verses[current_verse_idx]
+        next_verse = verses[next_verse_idx]
+        
+        # Extraer bloques completos
+        current_block_start = current_verse['start']
+        current_block_end = current_verse['end']
+        next_block_start = next_verse['start']
+        next_block_end = next_verse['end']
+        
+        # Extraer líneas de cada bloque
+        current_block = self.line_ring.lines[current_block_start:current_block_end + 1]
+        next_block = self.line_ring.lines[next_block_start:next_block_end + 1]
+        
+        # Caso especial: si son adyacentes
+        if current_block_end + 1 == next_block_start or (next_verse_idx < current_verse_idx):
+            # Bloques adyacentes o wrap-around
+            # Construir nueva lista: antes de current + next + current + después de next
+            new_lines = (
+                self.line_ring.lines[:current_block_start] +
+                next_block +
+                current_block +
+                self.line_ring.lines[next_block_end + 1:]
+            )
+            # Nuevo índice: donde empezó next_block, ahora está current_block
+            new_index = current_block_start + len(next_block)
+        else:
+            # Bloques no adyacentes
+            new_lines = self.line_ring.lines[:]
+            # Reemplazar bloques
+            new_lines[current_block_start:current_block_end + 1] = next_block
+            new_lines[next_block_start:next_block_end + 1] = current_block
+            new_index = next_block_start
+        
+        # Actualizar ring
+        self.line_ring.lines = new_lines
+        self.line_ring.index = new_index
+        
+        # Guardar y actualizar
+        self.auto_save_circular()
+        self.verses_view._cached_ring_lines = None  # Forzar recálculo
+        self.verses_view.update()
+        
+        print(f"⬇️ Swap bloque: {current_verse_idx+1} ↔ {next_verse_idx+1}")
 
     def _handle_f2_keys(self, key, modifiers, event):
         """Manejo de teclas en vista F2"""
@@ -449,11 +557,11 @@ class FullscreenCircleApp(QMainWindow):
             self.opacity = max(0.0, self.opacity - 0.1)
             self.setWindowOpacity(self.opacity)
         
-        # Alt+Up/Down: Cambiar archivo
+        # Alt+Up/Down: Swap bloques
         elif key == Qt.Key.Key_Up and modifiers == Qt.KeyboardModifier.AltModifier:
-            self.show_previous_file()
+            self.swap_block_up()
         elif key == Qt.Key.Key_Down and modifiers == Qt.KeyboardModifier.AltModifier:
-            self.show_next_file()
+            self.swap_block_down()
         
         # Up/Down: Navegar BLOQUES (no líneas individuales)
         elif key == Qt.Key.Key_Up:

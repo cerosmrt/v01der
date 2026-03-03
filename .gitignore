@@ -15,3 +15,10 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+
+# Archivos generados/temporales del proyecto
+combined_code.txt
+void/
+
+# O si solo querés excluir 0.txt:
+void/0.txt

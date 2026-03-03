@@ -1,67 +1,30 @@
- Prioridades ordenadas:
-🔴 ALTA PRIORIDAD (Funcionalidad core que cambia el workflow)
 
 F2: Skipear líneas con solo "."
-
-Impacto: Alto | Complejidad: Baja
 Los puntos son separadores, no contenido navegable
-También en F1 y F3
-
+La animación debe fluir bien, esta como tosca. 
 
 F2: Enter crea nueva línea debajo
-
-Impacto: Alto | Complejidad: Media
 Flujo natural de escritura en modo circular
+El cursor deberia estar en el centro como lo esta en F1, Y ocupar el lugar exacto de la linea donde iría lo que escriba. Se ubica abajo cuando en realidad la linea en la que estoy deberia subir una posicion. La siguiente mantenerse donde estaba, y el cursor ingresar al medio. 
 
 
-Ctrl+. traer línea random COPIADA de cualquier archivo void
-
-Impacto: Alto | Complejidad: Media
+Tecla "*" traer línea random COPIADA de cualquier archivo void
 Funciona en F1 y F2
-Cuando cursor vacío → final del archivo → traer random
-
-
-
-🟡 MEDIA PRIORIDAD (Mejoras de navegación)
 
 Alt+Up/Down: Swap líneas en F2
+Alt+Up/Down: Swap bloques o versos en F3
+Intercambiar línea/bloque actual con anterior/siguiente
 
-Impacto: Medio | Complejidad: Media
-Intercambiar línea actual con anterior/siguiente
-
-
-Alt+Up/Down: Swap bloques en F3
-
-Impacto: Medio | Complejidad: Media-Alta
-Intercambiar bloque actual con anterior/siguiente
-
-
-
-🟢 BAJA PRIORIDAD (Features avanzados de loop)
-
-F3 → Enter: Loopear solo ese bloque en F2
-
-Impacto: Medio | Complejidad: Alta
+F3 → Enter: entrar a f2 y ver solo ese bloque en loop
 Crear "sub-ring" temporal con solo líneas del bloque
 
+Lo que quiero hacer para limpiar un poco el codigo es agarrar todas las funciones que no voy a utilizar por ahora y guardarlas en un archivo txt o de codigo directamente pero que este en el gitignore. 
+Esto por si mas adelante quiero reutilizar algunas funciones o hacer un "override" algunos comandos ya tomados (algunas asignaciones de teclas)
 
+Quiero hacer que apretar el 0 transforme en la primer linea a la current line. 
+Reordene el parrafo entonces a partir de ahi. 
+Eso en la vista f2
+en la vista f3 quiero que marcar un bloque como 0 reorganice el texto a partir de ahí.
 Determinar línea/bloque 0 (inicio del loop)
-
-Impacto: Bajo-Medio | Complejidad: Alta
-Requiere nuevo estado + UI feedback
 Reordenar secuencia con nuevo origen
 
-
-------------------------------------------------------------------------------------------------
-Fase 1 (30-40 min):
-├─ 1. Skipear puntos "." en navegación F1/F2/F3 ⏱️ 10min
-├─ 2. F2 Enter → insertar línea debajo ⏱️ 15min
-└─ 3. Ctrl+. línea random (excluir 0.txt, incluir subcarpetas) ⏱️ 20min
-
-Fase 2 (40-50 min):
-├─ 4. Alt+Up/Down swap líneas F2 ⏱️ 20min
-└─ 5. Alt+Up/Down swap bloques F3 ⏱️ 30min
-
-Fase 3 (60+ min):
-├─ 6. F3→Enter loopear solo bloque (sub-ring temporal) ⏱️ 40min
-└─ 7. Ctrl+Home marcar 0 + reordenar loop ⏱️ 30min
