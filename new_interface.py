@@ -52,11 +52,11 @@ class FullscreenCircleApp(QMainWindow):
         self.entry.setFocus()
 
         # Controlador de ruido audio
-        self.noise_controller = NoiseController(
-            block_size=1024, volume=0.3, noise_type='brown',
-            bitcrush={'bit_depth': 10, 'sample_rate_factor': 0.7},
-            lfo_min_freq=0.03, lfo_max_freq=0.1, glitch_prob=0.005, cutoff_freq=2500
-        )
+        # self.noise_controller = NoiseController(
+        #     block_size=1024, volume=0.3, noise_type='brown',
+        #     bitcrush={'bit_depth': 10, 'sample_rate_factor': 0.7},
+        #     lfo_min_freq=0.03, lfo_max_freq=0.1, glitch_prob=0.005, cutoff_freq=2500
+        # )
 
         # Ring de líneas (estructura de datos central)
         self.line_ring = LineRing()
@@ -264,10 +264,10 @@ class FullscreenCircleApp(QMainWindow):
         self.setCentralWidget(self.stack)
         
         # Overlay de ruido visual
-        self.noise_overlay = NoiseOverlay(self)
-        self.noise_overlay.resize(self.size())
-        self.noise_overlay.show()
-        self.noise_overlay.raise_()
+        # self.noise_overlay = NoiseOverlay(self)
+        # self.noise_overlay.resize(self.size())
+        # self.noise_overlay.show()
+        # self.noise_overlay.raise_()
 
     def resizeEvent(self, event):
         """Maneja redimensionamiento de ventana"""
