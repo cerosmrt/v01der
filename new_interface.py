@@ -354,6 +354,8 @@ class FullscreenCircleApp(QMainWindow):
                 self.vault_view.setFont(self._app_font)
                 self.vault_view.editor.returnPressed.disconnect()
                 self.vault_view.editor.returnPressed.connect(self._vault_confirm_edit)
+                self.vault_view.editor.upPressed.connect(lambda: self._vault_navigate(-1))
+                self.vault_view.editor.downPressed.connect(lambda: self._vault_navigate(1))
                 self.stack.addWidget(self.vault_view)
             else:
                 self.vault_view.ring = self.vault_ring
@@ -361,8 +363,8 @@ class FullscreenCircleApp(QMainWindow):
 
             self.stack.setCurrentWidget(self.vault_view)
             self.entry.hide()
-            self.vault_view.setFocus()
             self.vault_view.update()
+            self._vault_show_editor()
 
     def auto_save_circular(self):
         """Save doc ring state to 0.txt."""
@@ -375,13 +377,12 @@ class FullscreenCircleApp(QMainWindow):
         except Exception as e:
             print(f"❌ Save error: {e}")
 
-    def _vault_open_editor(self):
-        """Enter inline pre-edit in F3: editor pre-filled, cursor at start."""
-        if not self.vault_ring.lines or self.vault_ring.current() == "":
+    def _vault_show_editor(self):
+        """Show the vault inline editor with the current vault line, cursor at start."""
+        if not self.vault_ring.lines:
             return
         view = self.vault_view
         view.edit_mode = True
-        view.insert_mode = False
         center_y = view.height() // 2
         editor_width = min(view.width() - 100, 800)
         view.editor.setFixedWidth(editor_width)
@@ -395,14 +396,18 @@ class FullscreenCircleApp(QMainWindow):
         view.editor.setFocus()
         view.update()
 
+    def _vault_navigate(self, delta):
+        """Move vault ring and update inline editor text."""
+        self.vault_ring.move(delta)
+        self.vault_view._offset = 0.0
+        self.vault_view.editor.setText(self.vault_ring.current())
+        self.vault_view.editor.setCursorPosition(0)
+        self.vault_view.update()
+
     def _vault_confirm_edit(self):
-        """Confirm vault pre-edit: insert into doc after current index, remove from vault."""
+        """Send editor text to doc ring, remove vault line, load next into editor."""
         view = self.vault_view
         new_text = view.editor.text().strip()
-        view.editor.hide()
-        view.edit_mode = False
-        view.setFocus()
-        view.update()
         if not new_text:
             return
         insert_pos = self.line_ring.index + 1
@@ -413,6 +418,14 @@ class FullscreenCircleApp(QMainWindow):
         view._offset = 0.0
         view.update()
         print(f"✅ Vault→Doc[{insert_pos}]: '{new_text}'")
+        # Load next vault line into editor (or hide if vault empty)
+        if self.vault_ring.lines and self.vault_ring.current():
+            view.editor.setText(self.vault_ring.current())
+            view.editor.setCursorPosition(0)
+            view.editor.setFocus()
+        else:
+            view.editor.hide()
+            view.edit_mode = False
 
     def take_screenshot(self):
         """F12: Capture the full screen and save to void_dir/screenshots/."""
@@ -626,21 +639,11 @@ class FullscreenCircleApp(QMainWindow):
                 self.switch_to_view(0)
 
     def _handle_f3_keys(self, key, mods, event):
-        if self.vault_view.edit_mode:
-            if key == Qt.Key.Key_Escape:
-                self.vault_view.cancel_edit()
-                event.accept()
-            return
-        if key == Qt.Key.Key_Up and mods == Qt.KeyboardModifier.NoModifier:
-            self.vault_view.animate_move(-1)
-            event.accept()
-        elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
-            self.vault_view.animate_move(1)
-            event.accept()
-        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self._vault_open_editor()
-            event.accept()
-        elif key == Qt.Key.Key_Escape:
+        # Up/Down/Enter/Ctrl combos are handled by vault_view.editor signals.
+        # Only catch Escape (exit vault) and quit here as fallback.
+        if key == Qt.Key.Key_Escape:
+            self.vault_view.edit_mode = False
+            self.vault_view.editor.hide()
             self.switch_to_view(0)
         elif self._matches(key, mods, 'quit'):
             self.close()

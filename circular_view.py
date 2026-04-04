@@ -217,9 +217,23 @@ class CircularView(QWidget):
 
 
 class CustomLineEdit(QLineEdit):
+    upPressed = pyqtSignal()
+    downPressed = pyqtSignal()
+
     def keyPressEvent(self, event):
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        key = event.key()
+        mods = event.modifiers()
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.returnPressed.emit()
             event.accept()
+        elif key == Qt.Key.Key_Up and mods == Qt.KeyboardModifier.NoModifier:
+            self.upPressed.emit()
+            event.accept()
+        elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
+            self.downPressed.emit()
+            event.accept()
+        elif mods & Qt.KeyboardModifier.ControlModifier:
+            # Forward Ctrl combos (opacity, etc.) to parent
+            event.ignore()
         else:
             super().keyPressEvent(event)
