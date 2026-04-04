@@ -1,4 +1,4 @@
-# new_interface.py - App principal con sistema de 3 vistas sincronizadas
+# new_interface.py - App principal con sistema de 2 vistas + vault (F3)
 import os
 import sys
 import json
@@ -12,7 +12,7 @@ from controls import setup_controls
 from line_ring import LineRing
 from circular_view import CircularView
 from widgets import CustomLineEdit
-from views import NormalView, VersesView
+from views import NormalView
 
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
@@ -32,7 +32,8 @@ DEFAULT_CONFIG = {
         "file_prev": "Alt+Up",
         "file_next": "Alt+Down",
         "swap_up": "Alt+Up",
-        "swap_down": "Alt+Down"
+        "swap_down": "Alt+Down",
+        "pick_dir": "F4"
     }
 }
 
@@ -89,7 +90,11 @@ def _save_config(config):
 
 
 class FullscreenCircleApp(QMainWindow):
-    """Aplicación principal fullscreen con 3 vistas (F1/F2/F3) sincronizadas"""
+    """
+    F1: center entry — write/navigate 0.txt lines
+    F2: circular view — edit/swap 0.txt lines
+    F3: vault browser — browse shuffled lines from other files, pick into 0.txt
+    """
 
     def __init__(self):
         super().__init__()
@@ -122,7 +127,7 @@ class FullscreenCircleApp(QMainWindow):
         self.setCursor(QCursor(Qt.CursorShape.BlankCursor))
         self.setStyleSheet("background-color: black; color: white;")
 
-        # Entry
+        # Entry (F1)
         self.entry = CustomLineEdit(self)
         self.entry.setFont(QFont("Consolas", 11))
         self.entry.setStyleSheet("""
@@ -137,17 +142,18 @@ class FullscreenCircleApp(QMainWindow):
         self.entry.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.entry.setFocus()
 
-        # Ring (populated by load_and_shuffle_all_lines)
+        # Doc ring (0.txt lines, ordered) and vault ring (other files, shuffled)
         self.line_ring = LineRing()
+        self.vault_ring = LineRing()
 
         # View stack
         self.stack = QStackedWidget()
         self.normal_view = NormalView(self)
-        self.circular_view = None
-        self.verses_view = None
+        self.circular_view = None   # F2: CircularView over doc ring
+        self.vault_view = None      # F3: CircularView over vault ring
         self.stack.addWidget(self.normal_view)
 
-        # File setup
+        # File setup — write target is always 0.txt
         self.current_file_path = os.path.join(self.void_dir, '0.txt')
         self.void_file_path = self.current_file_path
         os.makedirs(self.void_dir, exist_ok=True)
@@ -158,8 +164,8 @@ class FullscreenCircleApp(QMainWindow):
         setup_file_handling(self)
         setup_controls(self)
 
-        # Load all lines from all files and shuffle once
-        self.load_and_shuffle_all_lines()
+        self.load_doc_lines()
+        self.load_vault_lines()
 
         # Void key connection
         self._print_void_mode_status()
@@ -174,7 +180,6 @@ class FullscreenCircleApp(QMainWindow):
     # ── Directory picker ──────────────────────────────────────────────────────
 
     def _pick_void_directory(self):
-        """Opens a folder dialog to select the void directory."""
         path = QFileDialog.getExistingDirectory(
             None,
             "Select Void Directory",
@@ -184,7 +189,6 @@ class FullscreenCircleApp(QMainWindow):
         return path or None
 
     def change_void_directory(self):
-        """F4: Pick a new void directory, save it to config, rescan and reshuffle."""
         new_dir = self._pick_void_directory()
         if not new_dir or new_dir == self.void_dir:
             return
@@ -199,21 +203,39 @@ class FullscreenCircleApp(QMainWindow):
             open(self.current_file_path, 'w', encoding='utf-8').close()
 
         self.scan_txt_files()
-        self.load_and_shuffle_all_lines()
+        self.load_doc_lines()
+        self.load_vault_lines()
         self.switch_to_view(self.current_view)
         print(f"📁 Void dir changed to: {new_dir}")
 
-    # ── Shuffle loader ────────────────────────────────────────────────────────
+    # ── Loaders ───────────────────────────────────────────────────────────────
 
-    def load_and_shuffle_all_lines(self):
-        """
-        Scans all .txt files in void_dir recursively, collects every non-empty
-        non-dot line, shuffles them once, and loads them into the ring.
-        """
+    def load_doc_lines(self):
+        """Load 0.txt into the doc ring (ordered, no shuffle). Preserves index."""
+        doc_path = os.path.join(self.void_dir, '0.txt')
+        lines = []
+        try:
+            with open(doc_path, 'r', encoding='utf-8') as f:
+                for raw in f:
+                    s = raw.strip()
+                    if s and s != '.':
+                        lines.append(s)
+        except Exception as e:
+            print(f"⚠️ Error reading 0.txt: {e}")
+        old_index = self.line_ring.index if self.line_ring.lines else 0
+        self.line_ring = LineRing(lines or [""])
+        self.line_ring.index = min(old_index, len(self.line_ring.lines) - 1)
+        if self.circular_view:
+            self.circular_view.ring = self.line_ring
+            self.circular_view._offset = 0.0
+        print(f"📄 {len(lines)} lines loaded from 0.txt")
+
+    def load_vault_lines(self):
+        """Load all .txt files except 0.txt into vault ring (shuffled)."""
         all_lines = []
         for root, _, files in os.walk(self.void_dir):
             for fname in sorted(files):
-                if fname.lower().endswith('.txt'):
+                if fname.lower().endswith('.txt') and fname.lower() != '0.txt':
                     fpath = os.path.join(root, fname)
                     try:
                         with open(fpath, 'r', encoding='utf-8') as f:
@@ -223,24 +245,19 @@ class FullscreenCircleApp(QMainWindow):
                                     all_lines.append(s)
                     except Exception as e:
                         print(f"⚠️ Error reading {fpath}: {e}")
-
         if not all_lines:
             all_lines = [""]
         else:
             random.shuffle(all_lines)
+        self.vault_ring = LineRing(all_lines)
+        if self.vault_view:
+            self.vault_view.ring = self.vault_ring
+            self.vault_view._offset = 0.0
+        print(f"🔀 {len(all_lines)} vault lines loaded (shuffled)")
 
-        self.line_ring = LineRing(all_lines)
-        # Propagate updated ring to existing views
-        if self.circular_view:
-            self.circular_view.ring = self.line_ring
-        if self.verses_view:
-            self.verses_view.ring = self.line_ring
-        print(f"🔀 {len(all_lines)} lines loaded from '{self.void_dir}' (shuffled)")
-
-    # ── Config ────────────────────────────────────────────────────────────────
+    # ── Config / keybinding helpers ───────────────────────────────────────────
 
     def _matches(self, key, modifiers, action):
-        """Returns True if key+modifiers match the configured keybinding for action."""
         kb = self._kb.get(action)
         return kb is not None and key == kb[0] and modifiers == kb[1]
 
@@ -257,8 +274,10 @@ class FullscreenCircleApp(QMainWindow):
             self._void_enter_connection = self.entry.returnPressed.connect(self._handle_void_line)
 
     def _handle_void_line(self):
-        """Voids the current entry line; ring stays shuffled (no reload from file)."""
         void_line(self)
+        # Reload doc ring so F1 Up/Down and F2 reflect the written line
+        self.load_doc_lines()
+        self.line_ring.index = max(0, len(self.line_ring.lines) - 1)
 
     def _disconnect_void_key(self):
         if self._void_enter_connection:
@@ -284,12 +303,11 @@ class FullscreenCircleApp(QMainWindow):
     # ── Views ─────────────────────────────────────────────────────────────────
 
     def switch_to_view(self, view_index):
-        """Switches between F1/F2/F3 sharing the same ring."""
         old_view = self.current_view
         self.current_view = view_index
         print(f"📍 F{old_view+1} → F{view_index+1} | Index: {self.line_ring.index} | Line: '{self.line_ring.current()}'")
 
-        if view_index == 0:  # F1
+        if view_index == 0:  # F1 — write/navigate 0.txt
             self.stack.setCurrentWidget(self.normal_view)
             self.entry.show()
             self.entry.raise_()
@@ -297,7 +315,7 @@ class FullscreenCircleApp(QMainWindow):
             self.entry.setCursorPosition(0)
             self.entry.setFocus()
 
-        elif view_index == 1:  # F2
+        elif view_index == 1:  # F2 — circular doc view
             if not self.circular_view:
                 self.circular_view = CircularView(self.line_ring, self)
                 self.circular_view.setFont(QFont("Consolas", 11))
@@ -312,36 +330,55 @@ class FullscreenCircleApp(QMainWindow):
             self.circular_view.setFocus()
             self.circular_view.update()
 
-        elif view_index == 2:  # F3
-            if not self.verses_view:
-                self.verses_view = VersesView(self.line_ring, self)
-                self.stack.addWidget(self.verses_view)
+        elif view_index == 2:  # F3 — vault browser
+            if not self.vault_view:
+                self.vault_view = CircularView(self.vault_ring, self)
+                self.vault_view.setFont(QFont("Consolas", 11))
+                self.stack.addWidget(self.vault_view)
             else:
-                self.verses_view.ring = self.line_ring
+                self.vault_view.ring = self.vault_ring
+                self.vault_view._offset = 0.0
 
-            verses = self.verses_view.calculate_verses()
-            verse_idx = self.verses_view.find_current_verse()
-            print(f"   └─ Verse {verse_idx+1}/{len(verses)}")
-
-            self.stack.setCurrentWidget(self.verses_view)
+            self.stack.setCurrentWidget(self.vault_view)
             self.entry.hide()
-            self.verses_view.setFocus()
-            self.verses_view.update()
+            self.vault_view.setFocus()
+            self.vault_view.update()
 
     def auto_save_circular(self):
-        """Saves ring changes (from F2 edits) to the current file."""
+        """Save doc ring state to 0.txt."""
+        doc_path = os.path.join(self.void_dir, '0.txt')
         try:
-            with open(self.current_file_path, 'w', encoding='utf-8') as f:
+            with open(doc_path, 'w', encoding='utf-8') as f:
                 for line in self.line_ring.lines:
                     f.write(line + '\n')
-            print(f"💾 Saved from F2 (index={self.line_ring.index})")
+            print(f"💾 Saved to 0.txt (index={self.line_ring.index})")
         except Exception as e:
             print(f"❌ Save error: {e}")
+
+    def take_from_vault(self):
+        """
+        Insert the current vault line into the doc ring after current position,
+        save 0.txt, and remove the line from the vault.
+        """
+        if not self.vault_ring.lines or self.vault_ring.current() == "":
+            return
+        line = self.vault_ring.current()
+        # Insert into doc after current index
+        insert_pos = self.line_ring.index + 1
+        self.line_ring.lines.insert(insert_pos, line)
+        # Remove from vault (ring adjusts index automatically)
+        self.vault_ring.remove_current()
+        # Persist doc to disk
+        self.auto_save_circular()
+        # Refresh vault view display
+        if self.vault_view:
+            self.vault_view._offset = 0.0
+            self.vault_view.update()
+        print(f"✅ Vault→Doc[{insert_pos}]: '{line}'")
 
     # ── File navigation ───────────────────────────────────────────────────────
 
     def scan_txt_files(self):
-        """Scans .txt files in void_dir (top level) for the write-target list."""
         dir_path = self.void_dir
         self.txt_files = sorted(
             os.path.join(dir_path, f)
@@ -354,14 +391,11 @@ class FullscreenCircleApp(QMainWindow):
         self.current_file_index = self.txt_files.index(self.current_file_path)
 
     def switch_to_file(self, file_path):
-        """Changes the write-target file. Does NOT reload or re-shuffle the ring."""
         if not os.path.exists(file_path):
             open(file_path, 'w', encoding='utf-8').close()
-
         self.current_file_path = file_path
         self.current_file_index = self.txt_files.index(file_path)
         print(f"📂 Write target: {os.path.basename(file_path)}")
-
         if self.current_view == 0:
             self.entry.setText(self.line_ring.current())
             self.entry.setCursorPosition(0)
@@ -378,7 +412,7 @@ class FullscreenCircleApp(QMainWindow):
         self.current_file_index = (self.current_file_index + 1) % len(self.txt_files)
         self.switch_to_file(self.txt_files[self.current_file_index])
 
-    # ── Swap operations ───────────────────────────────────────────────────────
+    # ── Swap operations (F2 doc lines only) ──────────────────────────────────
 
     def swap_line_up(self):
         if len(self.line_ring.lines) < 2:
@@ -406,75 +440,16 @@ class FullscreenCircleApp(QMainWindow):
         self.circular_view.update()
         print(f"⬇️ Swap: {cur} ↔ {nxt}")
 
-    def swap_block_up(self):
-        verses = self.verses_view.calculate_verses()
-        if len(verses) < 2:
-            return
-        ci = self.verses_view.find_current_verse()
-        pi = (ci - 1) % len(verses)
-        cv, pv = verses[ci], verses[pi]
-        cb = self.line_ring.lines[cv['start']:cv['end'] + 1]
-        pb = self.line_ring.lines[pv['start']:pv['end'] + 1]
-        if pv['end'] + 1 == cv['start'] or pi > ci:
-            new_lines = (self.line_ring.lines[:pv['start']] + cb + pb +
-                         self.line_ring.lines[cv['end'] + 1:])
-            new_index = pv['start']
-        else:
-            new_lines = self.line_ring.lines[:]
-            new_lines[pv['start']:pv['end'] + 1] = cb
-            new_lines[cv['start']:cv['end'] + 1] = pb
-            new_index = pv['start']
-        self.line_ring.lines = new_lines
-        self.line_ring.index = new_index
-        self.auto_save_circular()
-        self.verses_view._cached_ring_lines = None
-        self.verses_view.update()
-        print(f"⬆️ Block swap: {ci+1} ↔ {pi+1}")
-
-    def swap_block_down(self):
-        verses = self.verses_view.calculate_verses()
-        if len(verses) < 2:
-            return
-        ci = self.verses_view.find_current_verse()
-        ni = (ci + 1) % len(verses)
-        cv, nv = verses[ci], verses[ni]
-        cb = self.line_ring.lines[cv['start']:cv['end'] + 1]
-        nb = self.line_ring.lines[nv['start']:nv['end'] + 1]
-        if cv['end'] + 1 == nv['start'] or ni < ci:
-            new_lines = (self.line_ring.lines[:cv['start']] + nb + cb +
-                         self.line_ring.lines[nv['end'] + 1:])
-            new_index = cv['start'] + len(nb)
-        else:
-            new_lines = self.line_ring.lines[:]
-            new_lines[cv['start']:cv['end'] + 1] = nb
-            new_lines[nv['start']:nv['end'] + 1] = cb
-            new_index = nv['start']
-        self.line_ring.lines = new_lines
-        self.line_ring.index = new_index
-        self.auto_save_circular()
-        self.verses_view._cached_ring_lines = None
-        self.verses_view.update()
-        print(f"⬇️ Block swap: {ci+1} ↔ {ni+1}")
-
     def rebase_to_index_zero(self):
-        """Ctrl+9: Reorders ring so current line/block becomes index 0."""
-        if self.current_view == 0:
-            print("⚠️ Rebase not available in F1")
+        """Ctrl+9: Reorder doc ring so current line becomes index 0. F2 only."""
+        if self.current_view != 1:
+            print("⚠️ Rebase only available in F2")
             return
         self.line_ring.rebase_to_current()
-        try:
-            with open(self.current_file_path, 'w', encoding='utf-8') as f:
-                for line in self.line_ring.lines:
-                    f.write(line + '\n')
-            print(f"💾 Rebase | New line 0: '{self.line_ring.current()[:50]}'")
-        except Exception as e:
-            print(f"❌ Error: {e}")
-        if self.current_view == 1:
-            self.circular_view._offset = 0.0
-            self.circular_view.update()
-        elif self.current_view == 2:
-            self.verses_view._cached_ring_lines = None
-            self.verses_view.update()
+        self.auto_save_circular()
+        self.circular_view._offset = 0.0
+        self.circular_view.update()
+        print(f"💾 Rebase | New line 0: '{self.line_ring.current()[:50]}'")
 
     # ── UI init ───────────────────────────────────────────────────────────────
 
@@ -511,14 +486,15 @@ class FullscreenCircleApp(QMainWindow):
         if self._matches(key, mods, 'view_f3'):
             self.switch_to_view(2); event.accept(); return
 
-        # Global: rebase
+        # Global: rebase doc ring (F2 only, enforced inside)
         if self._matches(key, mods, 'rebase'):
             self.rebase_to_index_zero(); event.accept(); return
 
-        # Global: reshuffle
+        # Global: reshuffle vault
         if self._matches(key, mods, 'reshuffle'):
-            self.load_and_shuffle_all_lines()
-            self.switch_to_view(self.current_view)
+            self.load_vault_lines()
+            if self.current_view == 2 and self.vault_view:
+                self.vault_view.update()
             event.accept(); return
 
         # Global: pick directory
@@ -532,7 +508,7 @@ class FullscreenCircleApp(QMainWindow):
         elif self.current_view == 1:
             self._handle_f2_keys(key, mods, event)
         elif self.current_view == 2:
-            self._handle_f3_keys(key, mods)
+            self._handle_f3_keys(key, mods, event)
 
     def _handle_f1_keys(self, key, mods):
         if self._matches(key, mods, 'quit'):
@@ -589,8 +565,19 @@ class FullscreenCircleApp(QMainWindow):
             elif key == Qt.Key.Key_Escape:
                 self.switch_to_view(0)
 
-    def _handle_f3_keys(self, key, mods):
-        if self._matches(key, mods, 'quit'):
+    def _handle_f3_keys(self, key, mods, event):
+        if key == Qt.Key.Key_Up and mods == Qt.KeyboardModifier.NoModifier:
+            self.vault_view.animate_move(-1)
+            event.accept()
+        elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
+            self.vault_view.animate_move(1)
+            event.accept()
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.take_from_vault()
+            event.accept()
+        elif key == Qt.Key.Key_Escape:
+            self.switch_to_view(0)
+        elif self._matches(key, mods, 'quit'):
             self.close()
         elif self._matches(key, mods, 'opacity_up'):
             self.opacity = min(1.0, self.opacity + 0.1)
@@ -598,31 +585,6 @@ class FullscreenCircleApp(QMainWindow):
         elif self._matches(key, mods, 'opacity_down'):
             self.opacity = max(0.0, self.opacity - 0.1)
             self.setWindowOpacity(self.opacity)
-        elif self._matches(key, mods, 'swap_up'):
-            self.swap_block_up()
-        elif self._matches(key, mods, 'swap_down'):
-            self.swap_block_down()
-        elif key == Qt.Key.Key_Up and mods == Qt.KeyboardModifier.NoModifier:
-            verses = self.verses_view.calculate_verses()
-            if not verses:
-                return
-            cur = self.verses_view.find_current_verse()
-            new = (cur - 1) % len(verses)
-            self.line_ring.index = verses[new]['start']
-            self.verses_view.update()
-            print(f"⬆️ F3: block {new+1}/{len(verses)}")
-        elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
-            verses = self.verses_view.calculate_verses()
-            if not verses:
-                return
-            cur = self.verses_view.find_current_verse()
-            new = (cur + 1) % len(verses)
-            self.line_ring.index = verses[new]['start']
-            self.verses_view.update()
-            print(f"⬇️ F3: block {new+1}/{len(verses)}")
-        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            print(f"↩️ F3→F2: index={self.line_ring.index}")
-            self.switch_to_view(1)
 
 
 if __name__ == '__main__':
