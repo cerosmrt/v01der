@@ -41,6 +41,11 @@ class CustomLineEdit(QLineEdit):
             from controls import show_random_line_from_current_file
             show_random_line_from_current_file(self.parent, event)
             event.accept()
+        elif (modifiers & Qt.KeyboardModifier.ControlModifier) and key in (
+            Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_F12
+        ):
+            # Forward these Ctrl combos to parent for global keybindings
+            event.ignore()
         else:
             super().keyPressEvent(event)
 

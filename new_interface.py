@@ -3,6 +3,7 @@ import os
 import sys
 import json
 import random
+import datetime
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QFileDialog
 from PyQt6.QtGui import QFont, QCursor
 from PyQt6.QtCore import Qt
@@ -20,6 +21,9 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.j
 DEFAULT_CONFIG = {
     "void_dir": "",
     "void_key": "enter",
+    "font_family": "Consolas",
+    "font_size": 11,
+    "text_color": "#ffffff",
     "keybindings": {
         "view_f1": "F1",
         "view_f2": "F2",
@@ -33,7 +37,9 @@ DEFAULT_CONFIG = {
         "file_next": "Alt+Down",
         "swap_up": "Alt+Up",
         "swap_down": "Alt+Down",
-        "pick_dir": "F4"
+        "pick_dir": "F4",
+        "screenshot": "F12",
+        "open_screenshots": "Ctrl+F12"
     }
 }
 
@@ -44,6 +50,7 @@ _KEY_MAP = {
     'Enter': Qt.Key.Key_Return, 'Space': Qt.Key.Key_Space,
     'F1': Qt.Key.Key_F1, 'F2': Qt.Key.Key_F2, 'F3': Qt.Key.Key_F3,
     'F4': Qt.Key.Key_F4, 'F5': Qt.Key.Key_F5, 'F6': Qt.Key.Key_F6,
+    'F12': Qt.Key.Key_F12,
     '0': Qt.Key.Key_0, '9': Qt.Key.Key_9, 'R': Qt.Key.Key_R,
     '.': Qt.Key.Key_Period, '*': Qt.Key.Key_Asterisk,
 }
@@ -120,6 +127,13 @@ class FullscreenCircleApp(QMainWindow):
         self.current_file_index = 0
         self.current_view = 0  # 0=F1, 1=F2, 2=F3
         self.use_spacebar_for_void = self.config.get('void_key', 'enter') == 'space'
+        self._pending_vault_remove = False  # True when staging a vault line in F1
+
+        # Font / color from config
+        _font_family = self.config.get('font_family', 'Consolas')
+        _font_size = int(self.config.get('font_size', 11))
+        _text_color = self.config.get('text_color', '#ffffff')
+        self._app_font = QFont(_font_family, _font_size)
 
         # Window setup
         self.setWindowTitle("Voider")
@@ -129,15 +143,15 @@ class FullscreenCircleApp(QMainWindow):
 
         # Entry (F1)
         self.entry = CustomLineEdit(self)
-        self.entry.setFont(QFont("Consolas", 11))
-        self.entry.setStyleSheet("""
-            QLineEdit {
+        self.entry.setFont(self._app_font)
+        self.entry.setStyleSheet(f"""
+            QLineEdit {{
                 background: transparent;
-                color: white;
+                color: {_text_color};
                 border: none;
-                selection-background-color: white;
+                selection-background-color: {_text_color};
                 selection-color: black;
-            }
+            }}
         """)
         self.entry.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.entry.setFocus()
@@ -304,6 +318,9 @@ class FullscreenCircleApp(QMainWindow):
     # ── Views ─────────────────────────────────────────────────────────────────
 
     def switch_to_view(self, view_index):
+        # Cancel staged vault line if user navigates away without voiding
+        if view_index == 2:
+            self._pending_vault_remove = False
         old_view = self.current_view
         self.current_view = view_index
         print(f"📍 F{old_view+1} → F{view_index+1} | Index: {self.line_ring.index} | Line: '{self.line_ring.current()}'")
@@ -319,7 +336,7 @@ class FullscreenCircleApp(QMainWindow):
         elif view_index == 1:  # F2 — circular doc view
             if not self.circular_view:
                 self.circular_view = CircularView(self.line_ring, self)
-                self.circular_view.setFont(QFont("Consolas", 11))
+                self.circular_view.setFont(self._app_font)
                 self.circular_view.line_saved.connect(self.auto_save_circular)
                 self.stack.addWidget(self.circular_view)
             else:
@@ -334,8 +351,7 @@ class FullscreenCircleApp(QMainWindow):
         elif view_index == 2:  # F3 — vault browser
             if not self.vault_view:
                 self.vault_view = CircularView(self.vault_ring, self)
-                self.vault_view.setFont(QFont("Consolas", 11))
-                # Redirect editor confirm to vault-specific handler
+                self.vault_view.setFont(self._app_font)
                 self.vault_view.editor.returnPressed.disconnect()
                 self.vault_view.editor.returnPressed.connect(self._vault_confirm_edit)
                 self.stack.addWidget(self.vault_view)
@@ -360,7 +376,7 @@ class FullscreenCircleApp(QMainWindow):
             print(f"❌ Save error: {e}")
 
     def _vault_open_editor(self):
-        """Enter inline pre-edit mode in F3: show editor pre-filled with vault line."""
+        """Enter inline pre-edit in F3: editor pre-filled, cursor at start."""
         if not self.vault_ring.lines or self.vault_ring.current() == "":
             return
         view = self.vault_view
@@ -374,13 +390,13 @@ class FullscreenCircleApp(QMainWindow):
             center_y - view.editor.sizeHint().height() // 2
         )
         view.editor.setText(self.vault_ring.current())
-        view.editor.selectAll()
+        view.editor.setCursorPosition(0)
         view.editor.show()
         view.editor.setFocus()
         view.update()
 
     def _vault_confirm_edit(self):
-        """Confirm vault pre-edit: insert edited text into doc, remove from vault."""
+        """Confirm vault pre-edit: insert into doc after current index, remove from vault."""
         view = self.vault_view
         new_text = view.editor.text().strip()
         view.editor.hide()
@@ -391,12 +407,29 @@ class FullscreenCircleApp(QMainWindow):
             return
         insert_pos = self.line_ring.index + 1
         self.line_ring.lines.insert(insert_pos, new_text)
-        self.line_ring.index = insert_pos  # advance to the newly inserted line
+        self.line_ring.index = insert_pos
         self.vault_ring.remove_current()
         self.auto_save_circular()
         view._offset = 0.0
         view.update()
         print(f"✅ Vault→Doc[{insert_pos}]: '{new_text}'")
+
+    def take_screenshot(self):
+        """F12: Capture the full screen and save to void_dir/screenshots/."""
+        screen = self.screen()
+        pixmap = screen.grabWindow(0)
+        screenshots_dir = os.path.join(self.void_dir, 'screenshots')
+        os.makedirs(screenshots_dir, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(screenshots_dir, f"snap_{ts}.png")
+        pixmap.save(path)
+        print(f"📸 Screenshot: {path}")
+
+    def open_screenshots_folder(self):
+        """Ctrl+F12: Open the screenshots folder in the system file explorer."""
+        screenshots_dir = os.path.join(self.void_dir, 'screenshots')
+        os.makedirs(screenshots_dir, exist_ok=True)
+        os.startfile(screenshots_dir)
 
     # ── File navigation ───────────────────────────────────────────────────────
 
@@ -523,6 +556,12 @@ class FullscreenCircleApp(QMainWindow):
         if self._matches(key, mods, 'pick_dir'):
             self.change_void_directory()
             event.accept(); return
+
+        # Global: screenshot / open folder
+        if self._matches(key, mods, 'screenshot'):
+            self.take_screenshot(); event.accept(); return
+        if self._matches(key, mods, 'open_screenshots'):
+            self.open_screenshots_folder(); event.accept(); return
 
         # Global: opacity
         if self._matches(key, mods, 'opacity_up'):

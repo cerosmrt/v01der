@@ -1,5 +1,6 @@
 import math
 from PyQt6.QtWidgets import QWidget, QLineEdit
+
 from PyQt6.QtCore import Qt, QPropertyAnimation, pyqtProperty, QEasingCurve, pyqtSignal
 from PyQt6.QtGui import QPainter, QFontMetrics, QFont, QKeyEvent
 
@@ -143,13 +144,12 @@ class CircularView(QWidget):
         self.update()
 
     def calculate_alpha(self, distance_from_center_px):
-        # Distancia en unidades de línea
-        dist = distance_from_center_px / self.line_height
-        
-        # Función de Cauchy / Racional
-        alpha = 1.0 / (1.0 + 1.5 * (dist ** 2))
-        
-        return max(0.02, min(self.max_alpha, alpha))
+        half_h = self.height() / 2
+        if half_h == 0:
+            return 1.0
+        t = distance_from_center_px / half_h  # 0 at center, 1 at screen edge
+        alpha = math.cos(t * math.pi / 2) if t < 1.0 else 0.0
+        return max(0.0, min(self.max_alpha, alpha))
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -162,10 +162,7 @@ class CircularView(QWidget):
         
         if self.edit_mode:
             # Si estamos en modo edición/inserción, mostrar líneas con opacidad baja
-            if self.circle_radius > 0:
-                max_lines = int(self.circle_radius / self.line_height) + 3
-            else:
-                max_lines = 20
+            max_lines = self.height() // (2 * self.line_height) + 2 if self.height() > 0 else 20
             
             for i in range(-max_lines, max_lines + 1):
                 y_pos = center_y + (i + self._offset) * self.line_height
@@ -186,10 +183,7 @@ class CircularView(QWidget):
                                 text)
         else:
             # Modo navegación normal
-            if self.circle_radius > 0:
-                max_lines = int(self.circle_radius / self.line_height) + 3
-            else:
-                max_lines = 20
+            max_lines = self.height() // (2 * self.line_height) + 2 if self.height() > 0 else 20
             
             for i in range(-max_lines, max_lines + 1):
                 y_pos = center_y + (i + self._offset) * self.line_height
