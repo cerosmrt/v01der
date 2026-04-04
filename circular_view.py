@@ -232,8 +232,10 @@ class CustomLineEdit(QLineEdit):
         elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
             self.downPressed.emit()
             event.accept()
-        elif mods & Qt.KeyboardModifier.ControlModifier:
-            # Forward Ctrl combos (opacity, etc.) to parent
+        elif mods & Qt.KeyboardModifier.ControlModifier and key in (
+            Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_F12
+        ):
+            # Forward only these Ctrl combos to parent (opacity, screenshots)
             event.ignore()
         else:
             super().keyPressEvent(event)

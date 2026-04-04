@@ -5,6 +5,7 @@ import json
 import random
 import datetime
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QFileDialog
+from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 from PyQt6.QtGui import QFont, QCursor
 from PyQt6.QtCore import Qt
 
@@ -39,7 +40,8 @@ DEFAULT_CONFIG = {
         "swap_down": "Alt+Down",
         "pick_dir": "F4",
         "screenshot": "F12",
-        "open_screenshots": "Ctrl+F12"
+        "open_screenshots": "Ctrl+F12",
+        "print_doc": "Ctrl+P"
     }
 }
 
@@ -51,7 +53,7 @@ _KEY_MAP = {
     'F1': Qt.Key.Key_F1, 'F2': Qt.Key.Key_F2, 'F3': Qt.Key.Key_F3,
     'F4': Qt.Key.Key_F4, 'F5': Qt.Key.Key_F5, 'F6': Qt.Key.Key_F6,
     'F12': Qt.Key.Key_F12,
-    '0': Qt.Key.Key_0, '9': Qt.Key.Key_9, 'R': Qt.Key.Key_R,
+    '0': Qt.Key.Key_0, '9': Qt.Key.Key_9, 'R': Qt.Key.Key_R, 'P': Qt.Key.Key_P,
     '.': Qt.Key.Key_Period, '*': Qt.Key.Key_Asterisk,
 }
 
@@ -326,6 +328,9 @@ class FullscreenCircleApp(QMainWindow):
         print(f"📍 F{old_view+1} → F{view_index+1} | Index: {self.line_ring.index} | Line: '{self.line_ring.current()}'")
 
         if view_index == 0:  # F1 — write/navigate 0.txt
+            if self.circular_view:
+                self.circular_view.edit_mode = False
+                self.circular_view.editor.hide()
             self.stack.setCurrentWidget(self.normal_view)
             self.entry.show()
             self.entry.raise_()
@@ -337,7 +342,10 @@ class FullscreenCircleApp(QMainWindow):
             if not self.circular_view:
                 self.circular_view = CircularView(self.line_ring, self)
                 self.circular_view.setFont(self._app_font)
-                self.circular_view.line_saved.connect(self.auto_save_circular)
+                self.circular_view.editor.returnPressed.disconnect()
+                self.circular_view.editor.returnPressed.connect(self._doc_confirm_edit)
+                self.circular_view.editor.upPressed.connect(lambda: self._doc_navigate(-1))
+                self.circular_view.editor.downPressed.connect(lambda: self._doc_navigate(1))
                 self.stack.addWidget(self.circular_view)
             else:
                 self.circular_view.ring = self.line_ring
@@ -345,8 +353,8 @@ class FullscreenCircleApp(QMainWindow):
 
             self.stack.setCurrentWidget(self.circular_view)
             self.entry.hide()
-            self.circular_view.setFocus()
             self.circular_view.update()
+            self._doc_show_editor()
 
         elif view_index == 2:  # F3 — vault browser
             if not self.vault_view:
@@ -376,6 +384,43 @@ class FullscreenCircleApp(QMainWindow):
             print(f"💾 Saved to 0.txt (index={self.line_ring.index})")
         except Exception as e:
             print(f"❌ Save error: {e}")
+
+    def _doc_show_editor(self):
+        """Show F2 editor with current doc line, cursor at start."""
+        if not self.line_ring.lines:
+            return
+        view = self.circular_view
+        view.edit_mode = True
+        center_y = view.height() // 2
+        editor_width = min(view.width() - 100, 800)
+        view.editor.setFixedWidth(editor_width)
+        view.editor.move(
+            (view.width() - editor_width) // 2,
+            center_y - view.editor.sizeHint().height() // 2
+        )
+        view.editor.setText(self.line_ring.current())
+        view.editor.setCursorPosition(0)
+        view.editor.show()
+        view.editor.setFocus()
+        view.update()
+
+    def _doc_navigate(self, delta):
+        """Move doc ring and update F2 editor text."""
+        self.line_ring.move(delta)
+        self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(self.line_ring.current())
+        self.circular_view.editor.setCursorPosition(0)
+        self.circular_view.update()
+
+    def _doc_confirm_edit(self):
+        """Save F2 editor text to the current doc ring line and persist to 0.txt."""
+        new_text = self.circular_view.editor.text().strip()
+        if new_text:
+            self.line_ring.lines[self.line_ring.index] = new_text
+            self.auto_save_circular()
+            self.circular_view.update()
+        # Keep editor open, cursor at start
+        self.circular_view.editor.setCursorPosition(0)
 
     def _vault_show_editor(self):
         """Show the vault inline editor with the current vault line, cursor at start."""
@@ -438,6 +483,46 @@ class FullscreenCircleApp(QMainWindow):
         pixmap.save(path)
         print(f"📸 Screenshot: {path}")
 
+    def print_doc(self):
+        """Ctrl+P: Print all lines from 0.txt, centered on the page."""
+        printer = QPrinter()
+        dialog = QPrintDialog(printer, self)
+        if dialog.exec() != QPrintDialog.DialogCode.Accepted:
+            return
+
+        doc_path = os.path.join(self.void_dir, '0.txt')
+        try:
+            with open(doc_path, 'r', encoding='utf-8') as f:
+                lines = [l.strip() for l in f if l.strip()]
+        except Exception as e:
+            print(f"❌ Print error reading file: {e}")
+            return
+
+        from PyQt6.QtGui import QPainter, QFontMetrics
+        painter = QPainter(printer)
+        font = QFont(self._app_font.family(), 14)
+        painter.setFont(font)
+        fm = QFontMetrics(font)
+        page_w = painter.viewport().width()
+        page_h = painter.viewport().height()
+        line_height = fm.height() + 4
+
+        if page_h <= 0 or line_height <= 0:
+            painter.end()
+            print("❌ Print error: invalid page dimensions")
+            return
+
+        y = line_height
+        for line in lines:
+            if y + line_height > page_h:
+                printer.newPage()
+                y = line_height
+            painter.drawText(0, y, page_w, line_height, Qt.AlignmentFlag.AlignCenter, line)
+            y += line_height
+
+        painter.end()
+        print(f"🖨️ Printed {len(lines)} lines from 0.txt")
+
     def open_screenshots_folder(self):
         """Ctrl+F12: Open the screenshots folder in the system file explorer."""
         screenshots_dir = os.path.join(self.void_dir, 'screenshots')
@@ -492,6 +577,8 @@ class FullscreenCircleApp(QMainWindow):
         self.line_ring.index = prev
         self.auto_save_circular()
         self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(self.line_ring.current())
+        self.circular_view.editor.setCursorPosition(0)
         self.circular_view.update()
         print(f"⬆️ Swap: {cur} ↔ {prev}")
 
@@ -505,6 +592,8 @@ class FullscreenCircleApp(QMainWindow):
         self.line_ring.index = nxt
         self.auto_save_circular()
         self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(self.line_ring.current())
+        self.circular_view.editor.setCursorPosition(0)
         self.circular_view.update()
         print(f"⬇️ Swap: {cur} ↔ {nxt}")
 
@@ -516,6 +605,8 @@ class FullscreenCircleApp(QMainWindow):
         self.line_ring.rebase_to_current()
         self.auto_save_circular()
         self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(self.line_ring.current())
+        self.circular_view.editor.setCursorPosition(0)
         self.circular_view.update()
         print(f"💾 Rebase | New line 0: '{self.line_ring.current()[:50]}'")
 
@@ -570,6 +661,10 @@ class FullscreenCircleApp(QMainWindow):
             self.change_void_directory()
             event.accept(); return
 
+        # Global: print
+        if self._matches(key, mods, 'print_doc'):
+            self.print_doc(); event.accept(); return
+
         # Global: screenshot / open folder
         if self._matches(key, mods, 'screenshot'):
             self.take_screenshot(); event.accept(); return
@@ -615,28 +710,13 @@ class FullscreenCircleApp(QMainWindow):
             print(f"⬇️ F1: index={self.line_ring.index}")
 
     def _handle_f2_keys(self, key, mods, event):
-        if self.circular_view.edit_mode:
-            if key == Qt.Key.Key_Escape:
-                self.circular_view.cancel_edit()
-                event.accept()
-        else:
-            if self._matches(key, mods, 'swap_up'):
-                self.swap_line_up(); event.accept()
-            elif self._matches(key, mods, 'swap_down'):
-                self.swap_line_down(); event.accept()
-            elif key == Qt.Key.Key_Up:
-                self.circular_view.animate_move(-1)
-                print(f"⬆️ F2: index={self.line_ring.index}")
-                event.accept()
-            elif key == Qt.Key.Key_Down:
-                self.circular_view.animate_move(1)
-                print(f"⬇️ F2: index={self.line_ring.index}")
-                event.accept()
-            elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                self.switch_to_view(0)
-                event.accept()
-            elif key == Qt.Key.Key_Escape:
-                self.switch_to_view(0)
+        # Up/Down/Enter handled by circular_view.editor signals.
+        if self._matches(key, mods, 'swap_up'):
+            self.swap_line_up(); event.accept()
+        elif self._matches(key, mods, 'swap_down'):
+            self.swap_line_down(); event.accept()
+        elif key == Qt.Key.Key_Escape:
+            self.switch_to_view(0)
 
     def _handle_f3_keys(self, key, mods, event):
         # Up/Down/Enter/Ctrl combos are handled by vault_view.editor signals.

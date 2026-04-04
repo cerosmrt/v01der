@@ -42,7 +42,7 @@ class CustomLineEdit(QLineEdit):
             show_random_line_from_current_file(self.parent, event)
             event.accept()
         elif (modifiers & Qt.KeyboardModifier.ControlModifier) and key in (
-            Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_F12
+            Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_F12, Qt.Key.Key_P
         ):
             # Forward these Ctrl combos to parent for global keybindings
             event.ignore()
