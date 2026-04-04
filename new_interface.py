@@ -275,9 +275,10 @@ class FullscreenCircleApp(QMainWindow):
 
     def _handle_void_line(self):
         void_line(self)
-        # Reload doc ring so F1 Up/Down and F2 reflect the written line
+        # Reload doc ring and position near the just-written line
         self.load_doc_lines()
-        self.line_ring.index = max(0, len(self.line_ring.lines) - 1)
+        if hasattr(self, 'last_inserted_index') and self.last_inserted_index is not None:
+            self.line_ring.index = min(self.last_inserted_index, len(self.line_ring.lines) - 1)
 
     def _disconnect_void_key(self):
         if self._void_enter_connection:
@@ -334,6 +335,9 @@ class FullscreenCircleApp(QMainWindow):
             if not self.vault_view:
                 self.vault_view = CircularView(self.vault_ring, self)
                 self.vault_view.setFont(QFont("Consolas", 11))
+                # Redirect editor confirm to vault-specific handler
+                self.vault_view.editor.returnPressed.disconnect()
+                self.vault_view.editor.returnPressed.connect(self._vault_confirm_edit)
                 self.stack.addWidget(self.vault_view)
             else:
                 self.vault_view.ring = self.vault_ring
@@ -355,26 +359,44 @@ class FullscreenCircleApp(QMainWindow):
         except Exception as e:
             print(f"❌ Save error: {e}")
 
-    def take_from_vault(self):
-        """
-        Insert the current vault line into the doc ring after current position,
-        save 0.txt, and remove the line from the vault.
-        """
+    def _vault_open_editor(self):
+        """Enter inline pre-edit mode in F3: show editor pre-filled with vault line."""
         if not self.vault_ring.lines or self.vault_ring.current() == "":
             return
-        line = self.vault_ring.current()
-        # Insert into doc after current index
+        view = self.vault_view
+        view.edit_mode = True
+        view.insert_mode = False
+        center_y = view.height() // 2
+        editor_width = min(view.width() - 100, 800)
+        view.editor.setFixedWidth(editor_width)
+        view.editor.move(
+            (view.width() - editor_width) // 2,
+            center_y - view.editor.sizeHint().height() // 2
+        )
+        view.editor.setText(self.vault_ring.current())
+        view.editor.selectAll()
+        view.editor.show()
+        view.editor.setFocus()
+        view.update()
+
+    def _vault_confirm_edit(self):
+        """Confirm vault pre-edit: insert edited text into doc, remove from vault."""
+        view = self.vault_view
+        new_text = view.editor.text().strip()
+        view.editor.hide()
+        view.edit_mode = False
+        view.setFocus()
+        view.update()
+        if not new_text:
+            return
         insert_pos = self.line_ring.index + 1
-        self.line_ring.lines.insert(insert_pos, line)
-        # Remove from vault (ring adjusts index automatically)
+        self.line_ring.lines.insert(insert_pos, new_text)
+        self.line_ring.index = insert_pos  # advance to the newly inserted line
         self.vault_ring.remove_current()
-        # Persist doc to disk
         self.auto_save_circular()
-        # Refresh vault view display
-        if self.vault_view:
-            self.vault_view._offset = 0.0
-            self.vault_view.update()
-        print(f"✅ Vault→Doc[{insert_pos}]: '{line}'")
+        view._offset = 0.0
+        view.update()
+        print(f"✅ Vault→Doc[{insert_pos}]: '{new_text}'")
 
     # ── File navigation ───────────────────────────────────────────────────────
 
@@ -455,22 +477,22 @@ class FullscreenCircleApp(QMainWindow):
 
     def init_ui(self):
         self.showFullScreen()
-        screen = self.screen().availableGeometry()
-        cx = screen.width() // 2
-        cy = screen.height() // 2
-        entry_width = min(screen.width(), screen.height()) * 2 // 2 - 90
-        self.entry.setFixedWidth(entry_width)
-        self.entry.move(cx - entry_width // 2, cy - self.entry.height() // 2)
         self.setCentralWidget(self.stack)
+        self._reposition_entry()
+
+    def _reposition_entry(self):
+        w = self.width()
+        h = self.height()
+        if w == 0 or h == 0:
+            return
+        entry_width = min(w, h) - 90
+        entry_height = self.entry.sizeHint().height()
+        self.entry.setFixedWidth(entry_width)
+        self.entry.move(w // 2 - entry_width // 2, h // 2 - entry_height // 2)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        screen = self.screen().availableGeometry()
-        cx = screen.width() // 2
-        cy = screen.height() // 2
-        entry_width = min(screen.width(), screen.height()) - 90
-        self.entry.setFixedWidth(entry_width)
-        self.entry.move(cx - entry_width // 2, cy - self.entry.height() // 2)
+        self._reposition_entry()
 
     # ── Key routing ───────────────────────────────────────────────────────────
 
@@ -502,6 +524,16 @@ class FullscreenCircleApp(QMainWindow):
             self.change_void_directory()
             event.accept(); return
 
+        # Global: opacity
+        if self._matches(key, mods, 'opacity_up'):
+            self.opacity = min(1.0, self.opacity + 0.1)
+            self.setWindowOpacity(self.opacity)
+            event.accept(); return
+        if self._matches(key, mods, 'opacity_down'):
+            self.opacity = max(0.0, self.opacity - 0.1)
+            self.setWindowOpacity(self.opacity)
+            event.accept(); return
+
         # View-specific
         if self.current_view == 0:
             self._handle_f1_keys(key, mods)
@@ -513,12 +545,6 @@ class FullscreenCircleApp(QMainWindow):
     def _handle_f1_keys(self, key, mods):
         if self._matches(key, mods, 'quit'):
             self.close()
-        elif self._matches(key, mods, 'opacity_up'):
-            self.opacity = min(1.0, self.opacity + 0.1)
-            self.setWindowOpacity(self.opacity)
-        elif self._matches(key, mods, 'opacity_down'):
-            self.opacity = max(0.0, self.opacity - 0.1)
-            self.setWindowOpacity(self.opacity)
         elif self._matches(key, mods, 'file_prev'):
             self.show_previous_file()
         elif self._matches(key, mods, 'file_next'):
@@ -555,17 +581,17 @@ class FullscreenCircleApp(QMainWindow):
                 print(f"⬇️ F2: index={self.line_ring.index}")
                 event.accept()
             elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                if mods & Qt.KeyboardModifier.ShiftModifier:
-                    self.circular_view.enter_edit_mode()
-                    print("✏️ F2: editing line")
-                else:
-                    self.circular_view.enter_insert_mode()
-                    print("➕ F2: inserting line")
+                self.switch_to_view(0)
                 event.accept()
             elif key == Qt.Key.Key_Escape:
                 self.switch_to_view(0)
 
     def _handle_f3_keys(self, key, mods, event):
+        if self.vault_view.edit_mode:
+            if key == Qt.Key.Key_Escape:
+                self.vault_view.cancel_edit()
+                event.accept()
+            return
         if key == Qt.Key.Key_Up and mods == Qt.KeyboardModifier.NoModifier:
             self.vault_view.animate_move(-1)
             event.accept()
@@ -573,18 +599,12 @@ class FullscreenCircleApp(QMainWindow):
             self.vault_view.animate_move(1)
             event.accept()
         elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self.take_from_vault()
+            self._vault_open_editor()
             event.accept()
         elif key == Qt.Key.Key_Escape:
             self.switch_to_view(0)
         elif self._matches(key, mods, 'quit'):
             self.close()
-        elif self._matches(key, mods, 'opacity_up'):
-            self.opacity = min(1.0, self.opacity + 0.1)
-            self.setWindowOpacity(self.opacity)
-        elif self._matches(key, mods, 'opacity_down'):
-            self.opacity = max(0.0, self.opacity - 0.1)
-            self.setWindowOpacity(self.opacity)
 
 
 if __name__ == '__main__':
