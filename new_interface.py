@@ -605,23 +605,35 @@ class FullscreenCircleApp(QMainWindow):
         print(f"⬇️ Swap: {cur} ↔ {nxt}")
 
     # ── Paragraph helpers ─────────────────────────────────────────────────────
+    # Model: each '.' is a paragraph separator. _paragraphs_from_ring extracts
+    # paragraph content arrays (no dots). _rebuild_ring_from_paragraphs puts them
+    # back, always emitting a dot before each paragraph. This makes circular
+    # paragraph operations (including wrapping first↔last) natural.
 
-    def _find_prev_dot(self, idx):
-        i = idx - 1
-        while i >= 0:
-            if self.line_ring.lines[i] == '.':
-                return i
-            i -= 1
-        return -1
+    def _paragraphs_from_ring(self):
+        """Return (dot_indices, paragraphs) where paragraphs[k] is the list of
+        content lines between dot_indices[k] and the next dot (or end)."""
+        lines = self.line_ring.lines
+        dot_indices = [i for i, l in enumerate(lines) if l == '.']
+        if not dot_indices:
+            return [], [list(lines)]
+        paragraphs = []
+        for k, d in enumerate(dot_indices):
+            next_d = dot_indices[k + 1] if k + 1 < len(dot_indices) else len(lines)
+            paragraphs.append(list(lines[d + 1:next_d]))
+        return dot_indices, paragraphs
 
-    def _find_next_dot(self, idx):
-        n = len(self.line_ring.lines)
-        i = idx + 1
-        while i < n:
-            if self.line_ring.lines[i] == '.':
-                return i
-            i += 1
-        return n
+    def _rebuild_ring_from_paragraphs(self, paragraphs):
+        """Rebuild ring.lines from paragraph content arrays, inserting a dot before each."""
+        new_lines = []
+        for para in paragraphs:
+            new_lines.append('.')
+            new_lines.extend(para)
+        self.line_ring.lines = new_lines
+
+    def _dot_line_index(self, para_idx, paragraphs):
+        """Return the line index of the dot that precedes paragraphs[para_idx]."""
+        return sum(1 + len(paragraphs[j]) for j in range(para_idx))
 
     def goto_prev_dot(self):
         ring = self.line_ring
@@ -647,62 +659,72 @@ class FullscreenCircleApp(QMainWindow):
                 return
             idx = (idx + 1) % n
 
-    def swap_paragraph_up(self):
-        """Move the paragraph ending at current dot above the previous paragraph."""
-        ring = self.line_ring
-        if not ring.lines or ring.lines[ring.index] != '.':
+    def _swap_paragraphs(self, k, other_k):
+        """Swap paragraphs[k] and paragraphs[other_k], then save. Cursor follows k."""
+        _, paragraphs = self._paragraphs_from_ring()
+        n = len(paragraphs)
+        if n <= 1:
             return
-        cur_dot = ring.index
-        prev_dot = self._find_prev_dot(cur_dot)
-        if prev_dot == -1:
-            return  # already first paragraph
-        prev_prev_dot = self._find_prev_dot(prev_dot)
-        start_b = prev_prev_dot + 1
-        para_b = ring.lines[start_b:prev_dot + 1]
-        para_a = ring.lines[prev_dot + 1:cur_dot + 1]
-        ring.lines[start_b:cur_dot + 1] = para_a + para_b
-        ring.index = start_b + len(para_a) - 1
-        self.auto_save_circular()
-        self.circular_view._offset = 0.0
-        self.circular_view.editor.setText(ring.current())
-        self.circular_view.editor.setCursorPosition(0)
-        self.circular_view.update()
-        print(f"⬆️ Paragraph swap up")
-
-    def swap_paragraph_down(self):
-        """Move the paragraph ending at current dot below the next paragraph."""
-        ring = self.line_ring
-        if not ring.lines or ring.lines[ring.index] != '.':
-            return
-        cur_dot = ring.index
-        next_dot = self._find_next_dot(cur_dot)
-        if next_dot >= len(ring.lines):
-            return  # already last paragraph
-        prev_dot = self._find_prev_dot(cur_dot)
-        start_a = prev_dot + 1
-        para_a = ring.lines[start_a:cur_dot + 1]
-        para_b = ring.lines[cur_dot + 1:next_dot + 1]
-        ring.lines[start_a:next_dot + 1] = para_b + para_a
-        ring.index = start_a + len(para_b) + len(para_a) - 1
-        self.auto_save_circular()
-        self.circular_view._offset = 0.0
-        self.circular_view.editor.setText(ring.current())
-        self.circular_view.editor.setCursorPosition(0)
-        self.circular_view.update()
-        print(f"⬇️ Paragraph swap down")
-
-    def rebase_to_index_zero(self):
-        """Ctrl+9: Reorder doc ring so current line becomes index 0. F2 only."""
-        if self.current_view != 1:
-            print("⚠️ Rebase only available in F2")
-            return
-        self.line_ring.rebase_to_current()
+        paragraphs[k], paragraphs[other_k] = paragraphs[other_k], paragraphs[k]
+        self._rebuild_ring_from_paragraphs(paragraphs)
+        # Cursor follows paragraph k to its new position
+        self.line_ring.index = self._dot_line_index(other_k, paragraphs)
         self.auto_save_circular()
         self.circular_view._offset = 0.0
         self.circular_view.editor.setText(self.line_ring.current())
         self.circular_view.editor.setCursorPosition(0)
         self.circular_view.update()
-        print(f"💾 Rebase | New line 0: '{self.line_ring.current()[:50]}'")
+
+    def _current_para_idx(self):
+        """Return the paragraph index (k) whose dot is at ring.index, or None."""
+        _, paragraphs = self._paragraphs_from_ring()
+        for k in range(len(paragraphs)):
+            if self._dot_line_index(k, paragraphs) == self.line_ring.index:
+                return k, paragraphs
+        return None, None
+
+    def swap_paragraph_up(self):
+        if not self.line_ring.lines or self.line_ring.current() != '.':
+            return
+        k, paragraphs = self._current_para_idx()
+        if k is None:
+            return
+        self._swap_paragraphs(k, (k - 1) % len(paragraphs))
+        print(f"⬆️ Paragraph swap up")
+
+    def swap_paragraph_down(self):
+        if not self.line_ring.lines or self.line_ring.current() != '.':
+            return
+        k, paragraphs = self._current_para_idx()
+        if k is None:
+            return
+        self._swap_paragraphs(k, (k + 1) % len(paragraphs))
+        print(f"⬇️ Paragraph swap down")
+
+    def rebase_to_index_zero(self):
+        """Ctrl+9: Rotate current paragraph so current line becomes first after its dot."""
+        if self.current_view != 1:
+            print("⚠️ Rebase only available in F2")
+            return
+        ring = self.line_ring
+        if ring.current() == '.':
+            return
+        _, paragraphs = self._paragraphs_from_ring()
+        for k, para in enumerate(paragraphs):
+            dot_pos = self._dot_line_index(k, paragraphs)
+            next_dot = dot_pos + 1 + len(para)
+            if dot_pos < ring.index < next_dot:
+                offset = ring.index - dot_pos - 1
+                paragraphs[k] = para[offset:] + para[:offset]
+                self._rebuild_ring_from_paragraphs(paragraphs)
+                ring.index = self._dot_line_index(k, paragraphs) + 1
+                self.auto_save_circular()
+                self.circular_view._offset = 0.0
+                self.circular_view.editor.setText(ring.current())
+                self.circular_view.editor.setCursorPosition(0)
+                self.circular_view.update()
+                print(f"💾 Rebase paragraph | '{ring.current()[:50]}'")
+                return
 
     # ── UI init ───────────────────────────────────────────────────────────────
 
