@@ -576,39 +576,62 @@ class FullscreenCircleApp(QMainWindow):
 
     # ── Swap operations (F2 doc lines only) ──────────────────────────────────
 
+    def _find_move_target(self, start, delta):
+        """Find nearest non-dot index in direction delta (wrapping).
+        Returns (index, wrapped) where wrapped=True means the boundary was crossed."""
+        n = len(self.line_ring.lines)
+        idx = (start + delta) % n
+        for _ in range(n - 1):
+            if self.line_ring.lines[idx] != '.':
+                wrapped = (delta == -1 and idx > start) or (delta == 1 and idx < start)
+                return idx, wrapped
+            idx = (idx + delta) % n
+        return None, False
+
     def swap_line_up(self):
         if len(self.line_ring.lines) < 2:
             return
         cur = self.line_ring.index
-        prev = cur - 1
-        if prev < 0:
-            return  # already at the top, don't wrap
-        self.line_ring.lines[cur], self.line_ring.lines[prev] = \
-            self.line_ring.lines[prev], self.line_ring.lines[cur]
-        self.line_ring.index = prev
+        prev, wrapped = self._find_move_target(cur, -1)
+        if prev is None:
+            return
+        lines = self.line_ring.lines
+        if not wrapped:
+            lines[cur], lines[prev] = lines[prev], lines[cur]
+            self.line_ring.index = prev
+        else:
+            # Move to end — don't displace the last line
+            line = lines.pop(cur)
+            lines.append(line)
+            self.line_ring.index = len(lines) - 1
         self.auto_save_circular()
         self.circular_view._offset = 0.0
         self.circular_view.editor.setText(self.line_ring.current())
         self.circular_view.editor.setCursorPosition(0)
         self.circular_view.update()
-        print(f"⬆️ Swap: {cur} ↔ {prev}")
 
     def swap_line_down(self):
         if len(self.line_ring.lines) < 2:
             return
         cur = self.line_ring.index
-        nxt = cur + 1
-        if nxt >= len(self.line_ring.lines):
-            return  # already at the bottom, don't wrap
-        self.line_ring.lines[cur], self.line_ring.lines[nxt] = \
-            self.line_ring.lines[nxt], self.line_ring.lines[cur]
-        self.line_ring.index = nxt
+        nxt, wrapped = self._find_move_target(cur, +1)
+        if nxt is None:
+            return
+        lines = self.line_ring.lines
+        if not wrapped:
+            lines[cur], lines[nxt] = lines[nxt], lines[cur]
+            self.line_ring.index = nxt
+        else:
+            # Move to front (after leading dot) — don't displace the first line
+            line = lines.pop(cur)
+            insert_at = next((i for i, l in enumerate(lines) if l != '.'), 0)
+            lines.insert(insert_at, line)
+            self.line_ring.index = insert_at
         self.auto_save_circular()
         self.circular_view._offset = 0.0
         self.circular_view.editor.setText(self.line_ring.current())
         self.circular_view.editor.setCursorPosition(0)
         self.circular_view.update()
-        print(f"⬇️ Swap: {cur} ↔ {nxt}")
 
     # ── Paragraph helpers ─────────────────────────────────────────────────────
     # Model: each '.' is a paragraph separator. _paragraphs_from_ring extracts
