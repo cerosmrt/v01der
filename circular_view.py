@@ -159,47 +159,44 @@ class CircularView(QWidget):
         w = self.width()
         h = self.height()
         center_y = h // 2
-        
-        if self.edit_mode:
-            # Si estamos en modo edición/inserción, mostrar líneas con opacidad baja
-            max_lines = self.height() // (2 * self.line_height) + 2 if self.height() > 0 else 20
-            
-            for i in range(-max_lines, max_lines + 1):
-                y_pos = center_y + (i + self._offset) * self.line_height
-                text = self.ring.get(i)
-                text_rect = fm.boundingRect(0, 0, w, 1000, Qt.AlignmentFlag.AlignCenter, text)
-                draw_y = int(y_pos - text_rect.height() / 2)
-                distance_from_center = abs(y_pos - center_y)
-                
-                # En modo edición, todas las líneas con opacidad media
-                alpha = self.calculate_alpha(distance_from_center) * 0.4
-                
-                if alpha < 0.01:
-                    continue
-                
-                painter.setOpacity(alpha)
-                painter.drawText(0, draw_y, w, text_rect.height(),
-                                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
-                                text)
-        else:
-            # Modo navegación normal
-            max_lines = self.height() // (2 * self.line_height) + 2 if self.height() > 0 else 20
-            
-            for i in range(-max_lines, max_lines + 1):
-                y_pos = center_y + (i + self._offset) * self.line_height
-                text = self.ring.get(i)
-                text_rect = fm.boundingRect(0, 0, w, 1000, Qt.AlignmentFlag.AlignCenter, text)
-                draw_y = int(y_pos - text_rect.height() / 2)
-                distance_from_center = abs(y_pos - center_y)
-                alpha = self.calculate_alpha(distance_from_center)
-                
-                if alpha < 0.01:
-                    continue
-                
-                painter.setOpacity(alpha)
-                painter.drawText(0, draw_y, w, text_rect.height(),
-                                Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
-                                text)
+
+        # When on a dot, find which offsets belong to its paragraph
+        on_dot = self.ring.current() == '.'
+        highlight_offsets = set()
+        if on_dot:
+            n = len(self.ring.lines)
+            para_size = 0
+            for off in range(1, n):
+                if self.ring.get(off) == '.':
+                    break
+                para_size += 1
+            highlight_offsets = set(range(0, para_size + 1))  # 0=dot, 1..N=content
+
+        max_lines = self.height() // (2 * self.line_height) + 2 if self.height() > 0 else 20
+
+        for i in range(-max_lines, max_lines + 1):
+            y_pos = center_y + (i + self._offset) * self.line_height
+            text = self.ring.get(i)
+            text_rect = fm.boundingRect(0, 0, w, 1000, Qt.AlignmentFlag.AlignCenter, text)
+            draw_y = int(y_pos - text_rect.height() / 2)
+            distance_from_center = abs(y_pos - center_y)
+            base_alpha = self.calculate_alpha(distance_from_center)
+
+            if self.edit_mode:
+                if on_dot and i in highlight_offsets:
+                    alpha = base_alpha          # paragraph: full fade
+                else:
+                    alpha = base_alpha * 0.3   # rest: dimmed
+            else:
+                alpha = base_alpha
+
+            if alpha < 0.01:
+                continue
+
+            painter.setOpacity(alpha)
+            painter.drawText(0, draw_y, w, text_rect.height(),
+                            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
+                            text)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
