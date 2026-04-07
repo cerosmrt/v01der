@@ -407,7 +407,7 @@ class FullscreenCircleApp(QMainWindow):
         )
         view.editor.setText(self.line_ring.current())
         view.editor.setCursorPosition(0)
-        view.editor.setCursorWidth(0 if self.line_ring.current() == '.' else 1)
+        view.editor.setReadOnly(self.line_ring.current() == '.')
         view.editor.show()
         view.editor.setFocus()
         view.update()
@@ -418,7 +418,7 @@ class FullscreenCircleApp(QMainWindow):
         self.circular_view._offset = 0.0
         self.circular_view.editor.setText(self.line_ring.current())
         self.circular_view.editor.setCursorPosition(0)
-        self.circular_view.editor.setCursorWidth(0 if self.line_ring.current() == '.' else 1)
+        self.circular_view.editor.setReadOnly(self.line_ring.current() == '.')
         self.circular_view.update()
 
     def _doc_confirm_edit(self):
@@ -581,8 +581,8 @@ class FullscreenCircleApp(QMainWindow):
             return
         cur = self.line_ring.index
         prev = cur - 1
-        if prev < 0 or self.line_ring.lines[prev] == '.':
-            return  # no wrap, no crossing paragraph boundaries
+        if prev < 0:
+            return  # already at the top, don't wrap
         self.line_ring.lines[cur], self.line_ring.lines[prev] = \
             self.line_ring.lines[prev], self.line_ring.lines[cur]
         self.line_ring.index = prev
@@ -598,8 +598,8 @@ class FullscreenCircleApp(QMainWindow):
             return
         cur = self.line_ring.index
         nxt = cur + 1
-        if nxt >= len(self.line_ring.lines) or self.line_ring.lines[nxt] == '.':
-            return  # no wrap, no crossing paragraph boundaries
+        if nxt >= len(self.line_ring.lines):
+            return  # already at the bottom, don't wrap
         self.line_ring.lines[cur], self.line_ring.lines[nxt] = \
             self.line_ring.lines[nxt], self.line_ring.lines[cur]
         self.line_ring.index = nxt
