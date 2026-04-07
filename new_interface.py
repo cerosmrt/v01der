@@ -38,6 +38,8 @@ DEFAULT_CONFIG = {
         "file_next": "Alt+Down",
         "swap_up": "Alt+Up",
         "swap_down": "Alt+Down",
+        "para_prev": "PageUp",
+        "para_next": "PageDown",
         "pick_dir": "F4",
         "screenshot": "F12",
         "open_screenshots": "Ctrl+F12",
@@ -53,6 +55,7 @@ _KEY_MAP = {
     'F1': Qt.Key.Key_F1, 'F2': Qt.Key.Key_F2, 'F3': Qt.Key.Key_F3,
     'F4': Qt.Key.Key_F4, 'F5': Qt.Key.Key_F5, 'F6': Qt.Key.Key_F6,
     'F12': Qt.Key.Key_F12,
+    'PageUp': Qt.Key.Key_PageUp, 'PageDown': Qt.Key.Key_PageDown,
     '0': Qt.Key.Key_0, '9': Qt.Key.Key_9, 'R': Qt.Key.Key_R, 'P': Qt.Key.Key_P,
     '.': Qt.Key.Key_Period, '*': Qt.Key.Key_Asterisk,
 }
@@ -234,12 +237,16 @@ class FullscreenCircleApp(QMainWindow):
             with open(doc_path, 'r', encoding='utf-8') as f:
                 for raw in f:
                     s = raw.strip()
-                    if s and s != '.':
+                    if s:
                         lines.append(s)
         except Exception as e:
             print(f"⚠️ Error reading 0.txt: {e}")
+        # Ensure a leading dot so the last paragraph and first paragraph
+        # are always separated when wrapping around the ring.
+        if lines and lines[0] != '.':
+            lines.insert(0, '.')
         old_index = self.line_ring.index if self.line_ring.lines else 0
-        self.line_ring = LineRing(lines or [""])
+        self.line_ring = LineRing(lines or ["."])
         self.line_ring.index = min(old_index, len(self.line_ring.lines) - 1)
         if self.circular_view:
             self.circular_view.ring = self.line_ring
@@ -597,6 +604,93 @@ class FullscreenCircleApp(QMainWindow):
         self.circular_view.update()
         print(f"⬇️ Swap: {cur} ↔ {nxt}")
 
+    # ── Paragraph helpers ─────────────────────────────────────────────────────
+
+    def _find_prev_dot(self, idx):
+        i = idx - 1
+        while i >= 0:
+            if self.line_ring.lines[i] == '.':
+                return i
+            i -= 1
+        return -1
+
+    def _find_next_dot(self, idx):
+        n = len(self.line_ring.lines)
+        i = idx + 1
+        while i < n:
+            if self.line_ring.lines[i] == '.':
+                return i
+            i += 1
+        return n
+
+    def goto_prev_dot(self):
+        ring = self.line_ring
+        n = len(ring.lines)
+        if n == 0:
+            return
+        idx = (ring.index - 1) % n
+        for _ in range(n):
+            if ring.lines[idx] == '.':
+                ring.index = idx
+                return
+            idx = (idx - 1) % n
+
+    def goto_next_dot(self):
+        ring = self.line_ring
+        n = len(ring.lines)
+        if n == 0:
+            return
+        idx = (ring.index + 1) % n
+        for _ in range(n):
+            if ring.lines[idx] == '.':
+                ring.index = idx
+                return
+            idx = (idx + 1) % n
+
+    def swap_paragraph_up(self):
+        """Move the paragraph ending at current dot above the previous paragraph."""
+        ring = self.line_ring
+        if not ring.lines or ring.lines[ring.index] != '.':
+            return
+        cur_dot = ring.index
+        prev_dot = self._find_prev_dot(cur_dot)
+        if prev_dot == -1:
+            return  # already first paragraph
+        prev_prev_dot = self._find_prev_dot(prev_dot)
+        start_b = prev_prev_dot + 1
+        para_b = ring.lines[start_b:prev_dot + 1]
+        para_a = ring.lines[prev_dot + 1:cur_dot + 1]
+        ring.lines[start_b:cur_dot + 1] = para_a + para_b
+        ring.index = start_b + len(para_a) - 1
+        self.auto_save_circular()
+        self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(ring.current())
+        self.circular_view.editor.setCursorPosition(0)
+        self.circular_view.update()
+        print(f"⬆️ Paragraph swap up")
+
+    def swap_paragraph_down(self):
+        """Move the paragraph ending at current dot below the next paragraph."""
+        ring = self.line_ring
+        if not ring.lines or ring.lines[ring.index] != '.':
+            return
+        cur_dot = ring.index
+        next_dot = self._find_next_dot(cur_dot)
+        if next_dot >= len(ring.lines):
+            return  # already last paragraph
+        prev_dot = self._find_prev_dot(cur_dot)
+        start_a = prev_dot + 1
+        para_a = ring.lines[start_a:cur_dot + 1]
+        para_b = ring.lines[cur_dot + 1:next_dot + 1]
+        ring.lines[start_a:next_dot + 1] = para_b + para_a
+        ring.index = start_a + len(para_b) + len(para_a) - 1
+        self.auto_save_circular()
+        self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(ring.current())
+        self.circular_view.editor.setCursorPosition(0)
+        self.circular_view.update()
+        print(f"⬇️ Paragraph swap down")
+
     def rebase_to_index_zero(self):
         """Ctrl+9: Reorder doc ring so current line becomes index 0. F2 only."""
         if self.current_view != 1:
@@ -696,6 +790,16 @@ class FullscreenCircleApp(QMainWindow):
             self.show_previous_file()
         elif self._matches(key, mods, 'file_next'):
             self.show_next_file()
+        elif self._matches(key, mods, 'para_prev'):
+            self.goto_prev_dot()
+            self.entry.setText(self.line_ring.current())
+            self.entry.setCursorPosition(0)
+            self.current_active_line_index = self.line_ring.index
+        elif self._matches(key, mods, 'para_next'):
+            self.goto_next_dot()
+            self.entry.setText(self.line_ring.current())
+            self.entry.setCursorPosition(0)
+            self.current_active_line_index = self.line_ring.index
         elif key == Qt.Key.Key_Up and mods == Qt.KeyboardModifier.NoModifier:
             self.line_ring.move(-1)
             self.entry.setText(self.line_ring.current())
@@ -712,9 +816,25 @@ class FullscreenCircleApp(QMainWindow):
     def _handle_f2_keys(self, key, mods, event):
         # Up/Down/Enter handled by circular_view.editor signals.
         if self._matches(key, mods, 'swap_up'):
-            self.swap_line_up(); event.accept()
+            if self.line_ring.current() == '.':
+                self.swap_paragraph_up()
+            else:
+                self.swap_line_up()
+            event.accept()
         elif self._matches(key, mods, 'swap_down'):
-            self.swap_line_down(); event.accept()
+            if self.line_ring.current() == '.':
+                self.swap_paragraph_down()
+            else:
+                self.swap_line_down()
+            event.accept()
+        elif self._matches(key, mods, 'para_prev'):
+            self.goto_prev_dot()
+            self._doc_show_editor()
+            event.accept()
+        elif self._matches(key, mods, 'para_next'):
+            self.goto_next_dot()
+            self._doc_show_editor()
+            event.accept()
         elif key == Qt.Key.Key_Escape:
             self.switch_to_view(0)
 
