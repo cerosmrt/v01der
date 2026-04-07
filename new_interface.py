@@ -688,16 +688,28 @@ class FullscreenCircleApp(QMainWindow):
                 return
             idx = (idx + 1) % n
 
-    def _swap_paragraphs(self, k, other_k):
-        """Swap paragraphs[k] and paragraphs[other_k], then save. Cursor follows k."""
-        _, paragraphs = self._paragraphs_from_ring()
+    def _move_paragraph(self, k, paragraphs, direction):
+        """Move paragraph k up (-1) or down (+1). At boundaries: move, not swap."""
         n = len(paragraphs)
         if n <= 1:
             return
-        paragraphs[k], paragraphs[other_k] = paragraphs[other_k], paragraphs[k]
+        other_k = k + direction
+        wrapped = other_k < 0 or other_k >= n
+        if not wrapped:
+            # Normal: swap adjacent paragraphs
+            paragraphs[k], paragraphs[other_k] = paragraphs[other_k], paragraphs[k]
+            dest = other_k
+        else:
+            # Boundary: remove and insert at the other end
+            para = paragraphs.pop(k)
+            if direction == -1:
+                paragraphs.append(para)   # first → becomes last
+                dest = len(paragraphs) - 1
+            else:
+                paragraphs.insert(0, para)  # last → becomes first
+                dest = 0
         self._rebuild_ring_from_paragraphs(paragraphs)
-        # Cursor follows paragraph k to its new position
-        self.line_ring.index = self._dot_line_index(other_k, paragraphs)
+        self.line_ring.index = self._dot_line_index(dest, paragraphs)
         self.auto_save_circular()
         self.circular_view._offset = 0.0
         self.circular_view.editor.setText(self.line_ring.current())
@@ -718,8 +730,7 @@ class FullscreenCircleApp(QMainWindow):
         k, paragraphs = self._current_para_idx()
         if k is None:
             return
-        self._swap_paragraphs(k, (k - 1) % len(paragraphs))
-        print(f"⬆️ Paragraph swap up")
+        self._move_paragraph(k, paragraphs, -1)
 
     def swap_paragraph_down(self):
         if not self.line_ring.lines or self.line_ring.current() != '.':
@@ -727,8 +738,7 @@ class FullscreenCircleApp(QMainWindow):
         k, paragraphs = self._current_para_idx()
         if k is None:
             return
-        self._swap_paragraphs(k, (k + 1) % len(paragraphs))
-        print(f"⬇️ Paragraph swap down")
+        self._move_paragraph(k, paragraphs, +1)
 
     def rebase_to_index_zero(self):
         """Ctrl+9: Rotate current paragraph so current line becomes first after its dot."""
