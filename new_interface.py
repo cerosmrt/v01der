@@ -351,6 +351,7 @@ class FullscreenCircleApp(QMainWindow):
                 self.circular_view.setFont(self._app_font)
                 self.circular_view.editor.returnPressed.disconnect()
                 self.circular_view.editor.returnPressed.connect(self._doc_confirm_edit)
+                self.circular_view.editor.textEdited.connect(self._doc_live_save)
                 self.circular_view.editor.upPressed.connect(lambda: self._doc_navigate(-1))
                 self.circular_view.editor.downPressed.connect(lambda: self._doc_navigate(1))
                 self.stack.addWidget(self.circular_view)
@@ -421,14 +422,15 @@ class FullscreenCircleApp(QMainWindow):
         self.circular_view.editor.setReadOnly(self.line_ring.current() == '.')
         self.circular_view.update()
 
-    def _doc_confirm_edit(self):
-        """Save F2 editor text to the current doc ring line and persist to 0.txt."""
-        new_text = self.circular_view.editor.text().strip()
-        if new_text:
-            self.line_ring.lines[self.line_ring.index] = new_text
+    def _doc_live_save(self, text):
+        """Save on every keystroke in F2 editor."""
+        if text.strip():
+            self.line_ring.lines[self.line_ring.index] = text
             self.auto_save_circular()
             self.circular_view.update()
-        # Keep editor open, cursor at start
+
+    def _doc_confirm_edit(self):
+        """Enter in F2 — just reposition cursor, live save already handled."""
         self.circular_view.editor.setCursorPosition(0)
 
     def _vault_show_editor(self):
