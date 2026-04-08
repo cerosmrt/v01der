@@ -20,6 +20,7 @@ class CircularView(QWidget):
         self.current_animation = None
         self.edit_mode = False
         self.insert_mode = False  # Nueva: modo insertar línea debajo
+        self.focus_indices = None  # set of absolute ring indices to highlight in focus mode
         
         # Crear el editor
         self.editor = CustomLineEdit(self)
@@ -182,11 +183,14 @@ class CircularView(QWidget):
             distance_from_center = abs(y_pos - center_y)
             base_alpha = self.calculate_alpha(distance_from_center)
 
-            if self.edit_mode:
+            if self.focus_indices is not None:
+                abs_idx = (self.ring.index + i) % len(self.ring.lines)
+                alpha = base_alpha if abs_idx in self.focus_indices else base_alpha * 0.1
+            elif self.edit_mode:
                 if on_dot and i in highlight_offsets:
-                    alpha = base_alpha          # paragraph: full fade
+                    alpha = base_alpha
                 else:
-                    alpha = base_alpha * 0.3   # rest: dimmed
+                    alpha = base_alpha * 0.3
             else:
                 alpha = base_alpha
 

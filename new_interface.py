@@ -133,6 +133,8 @@ class FullscreenCircleApp(QMainWindow):
         self.current_view = 0  # 0=F1, 1=F2, 2=F3
         self.use_spacebar_for_void = self.config.get('void_key', 'enter') == 'space'
         self._pending_vault_remove = False  # True when staging a vault line in F1
+        self._para_focus = False            # True when in paragraph focus mode
+        self._para_focus_content = []       # Ordered list of absolute ring indices for focused paragraph
 
         # Font / color from config
         _font_family = self.config.get('font_family', 'Consolas')
@@ -420,7 +422,13 @@ class FullscreenCircleApp(QMainWindow):
 
     def _doc_navigate(self, delta):
         """Move doc ring and update F2 editor text."""
-        self.line_ring.move(delta)
+        if self._para_focus and self._para_focus_content:
+            content = self._para_focus_content
+            cur = self.line_ring.index
+            pos = content.index(cur) if cur in content else 0
+            self.line_ring.index = content[(pos + delta) % len(content)]
+        else:
+            self.line_ring.move(delta)
         self.circular_view._offset = 0.0
         self.circular_view.editor.setText(self.line_ring.current())
         self.circular_view.editor.setCursorPosition(0)
@@ -435,8 +443,49 @@ class FullscreenCircleApp(QMainWindow):
             self.circular_view.update()
 
     def _doc_confirm_edit(self):
-        """Enter in F2 — just reposition cursor, live save already handled."""
+        """Enter in F2: enter paragraph focus mode when on a dot, else reposition cursor."""
+        if self.line_ring.current() == '.' and not self._para_focus:
+            self._enter_para_focus()
+        else:
+            self.circular_view.editor.setCursorPosition(0)
+
+    def _enter_para_focus(self):
+        ring = self.line_ring
+        n = len(ring.lines)
+        dot_idx = ring.index
+        content = []
+        i = (dot_idx + 1) % n
+        for _ in range(n - 1):
+            if ring.lines[i] == '.':
+                break
+            content.append(i)
+            i = (i + 1) % n
+        if not content:
+            return
+        self._para_focus = True
+        self._para_focus_content = content
+        self.circular_view.focus_indices = set(content) | {dot_idx}
+        ring.index = content[0]
+        self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(ring.current())
         self.circular_view.editor.setCursorPosition(0)
+        self.circular_view.editor.setReadOnly(False)
+        self.circular_view.update()
+
+    def _exit_para_focus(self):
+        self._para_focus = False
+        self._para_focus_content = []
+        self.circular_view.focus_indices = None
+        # Return to the dot that precedes this paragraph
+        ring = self.line_ring
+        n = len(ring.lines)
+        idx = (ring.index - 1) % n
+        for _ in range(n):
+            if ring.lines[idx] == '.':
+                ring.index = idx
+                break
+            idx = (idx - 1) % n
+        self._doc_show_editor()
 
     def _vault_show_editor(self):
         """Show the vault inline editor with the current vault line, cursor at start."""
@@ -904,7 +953,10 @@ class FullscreenCircleApp(QMainWindow):
             self._doc_show_editor()
             event.accept()
         elif key == Qt.Key.Key_Escape:
-            self.switch_to_view(0)
+            if self._para_focus:
+                self._exit_para_focus()
+            else:
+                self.switch_to_view(0)
 
     def _handle_f3_keys(self, key, mods, event):
         # Up/Down/Enter/Ctrl combos are handled by vault_view.editor signals.
