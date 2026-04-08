@@ -341,8 +341,13 @@ class FullscreenCircleApp(QMainWindow):
             self.stack.setCurrentWidget(self.normal_view)
             self.entry.show()
             self.entry.raise_()
+            # Anchor F1 to the line currently selected in F2 so edits/inserts
+            # happen at that position, not appended to the end of the file.
+            if old_view == 1 and self.line_ring.current() != '.':
+                self.current_active_line_index = self.line_ring.index
+                self.last_inserted_index = self.line_ring.index
             self.entry.setText(self.line_ring.current())
-            self.entry.setCursorPosition(0)
+            self.entry.setCursorPosition(len(self.entry.text()))
             self.entry.setFocus()
 
         elif view_index == 1:  # F2 — circular doc view
