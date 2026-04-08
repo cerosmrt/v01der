@@ -443,11 +443,17 @@ class FullscreenCircleApp(QMainWindow):
             self.circular_view.update()
 
     def _doc_confirm_edit(self):
-        """Enter in F2: enter paragraph focus mode when on a dot, else reposition cursor."""
+        """Enter in F2: focus mode on dot, go to F1 anchored on text line."""
         if self.line_ring.current() == '.' and not self._para_focus:
             self._enter_para_focus()
         else:
-            self.circular_view.editor.setCursorPosition(0)
+            # Switch to F1 empty, anchor insertions below current line
+            idx = self.line_ring.index
+            self._exit_para_focus() if self._para_focus else None
+            self.current_active_line_index = None
+            self.last_inserted_index = idx
+            self.switch_to_view(0)
+            self.entry.clear()
 
     def _enter_para_focus(self):
         ring = self.line_ring
@@ -644,8 +650,32 @@ class FullscreenCircleApp(QMainWindow):
             idx = (idx + delta) % n
         return None, False
 
+    def _swap_line_in_focus(self, delta):
+        """Swap line within para focus content, wrapping circularly inside the paragraph."""
+        content = self._para_focus_content
+        if not content:
+            return
+        lines = self.line_ring.lines
+        cur = self.line_ring.index
+        pos = content.index(cur) if cur in content else 0
+        other_pos = (pos + delta) % len(content)
+        other = content[other_pos]
+        lines[cur], lines[other] = lines[other], lines[cur]
+        # Update focus_content indices to follow swapped positions
+        self._para_focus_content[pos], self._para_focus_content[other_pos] = \
+            self._para_focus_content[other_pos], self._para_focus_content[pos]
+        self.line_ring.index = other
+        self.auto_save_circular()
+        self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(self.line_ring.current())
+        self.circular_view.editor.setCursorPosition(0)
+        self.circular_view.update()
+
     def swap_line_up(self):
         if len(self.line_ring.lines) < 2:
+            return
+        if self._para_focus:
+            self._swap_line_in_focus(-1)
             return
         cur = self.line_ring.index
         prev, wrapped = self._find_move_target(cur, -1)
@@ -656,7 +686,6 @@ class FullscreenCircleApp(QMainWindow):
             lines[cur], lines[prev] = lines[prev], lines[cur]
             self.line_ring.index = prev
         else:
-            # Move to end — don't displace the last line
             line = lines.pop(cur)
             lines.append(line)
             self.line_ring.index = len(lines) - 1
@@ -669,6 +698,9 @@ class FullscreenCircleApp(QMainWindow):
     def swap_line_down(self):
         if len(self.line_ring.lines) < 2:
             return
+        if self._para_focus:
+            self._swap_line_in_focus(+1)
+            return
         cur = self.line_ring.index
         nxt, wrapped = self._find_move_target(cur, +1)
         if nxt is None:
@@ -678,7 +710,6 @@ class FullscreenCircleApp(QMainWindow):
             lines[cur], lines[nxt] = lines[nxt], lines[cur]
             self.line_ring.index = nxt
         else:
-            # Move to front (after leading dot) — don't displace the first line
             line = lines.pop(cur)
             insert_at = next((i for i, l in enumerate(lines) if l != '.'), 0)
             lines.insert(insert_at, line)
@@ -918,9 +949,13 @@ class FullscreenCircleApp(QMainWindow):
             self.entry.setCursorPosition(0)
             self.current_active_line_index = self.line_ring.index
         elif key == Qt.Key.Key_Up and mods == Qt.KeyboardModifier.NoModifier:
-            self.line_ring.move(-1)
+            # If entry is empty and ring is already at the last sent line, show it first
+            if not self.entry.text() and self.current_active_line_index is None:
+                pass  # don't move, just show current
+            else:
+                self.line_ring.move(-1)
             self.entry.setText(self.line_ring.current())
-            self.entry.setCursorPosition(0)
+            self.entry.setCursorPosition(len(self.entry.text()))
             self.current_active_line_index = self.line_ring.index
             print(f"⬆️ F1: index={self.line_ring.index}")
         elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
