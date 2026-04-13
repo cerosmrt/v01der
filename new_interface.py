@@ -21,6 +21,8 @@ CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.j
 
 DEFAULT_CONFIG = {
     "void_dir": "",
+    "book_dir": "",
+    "active_file": "",
     "void_key": "enter",
     "font_family": "Consolas",
     "font_size": 11,
@@ -29,6 +31,7 @@ DEFAULT_CONFIG = {
         "view_f1": "F1",
         "view_f2": "F2",
         "view_f3": "F3",
+        "view_f4": "F4",
         "quit": "Escape",
         "rebase": "Ctrl+9",
         "reshuffle": "Ctrl+R",
@@ -40,7 +43,9 @@ DEFAULT_CONFIG = {
         "swap_down": "Alt+Down",
         "para_prev": "PageUp",
         "para_next": "PageDown",
-        "pick_dir": "F4",
+        "pick_active_file": "Ctrl+F2",
+        "pick_book_dir": "Ctrl+F3",
+        "pick_dir": "Ctrl+F4",
         "screenshot": "F12",
         "open_screenshots": "Ctrl+F12",
         "print_doc": "Ctrl+P"
@@ -103,9 +108,10 @@ def _save_config(config):
 
 class FullscreenCircleApp(QMainWindow):
     """
-    F1: center entry — write/navigate 0.txt lines
-    F2: circular view — edit/swap 0.txt lines
-    F3: vault browser — browse shuffled lines from other files, pick into 0.txt
+    F1: center entry — write/navigate active file
+    F2: circular view — edit/swap active file lines
+    F3: book browser — navigate/reorder files in current book folder
+    F4: vault browser — browse shuffled lines from void folder, pick into active file
     """
 
     def __init__(self):
@@ -127,10 +133,24 @@ class FullscreenCircleApp(QMainWindow):
             _save_config(self.config)
 
         self.void_dir = void_dir
+
+        # Resolve book_dir: config → default to void_dir
+        book_dir = self.config.get('book_dir', '')
+        if not book_dir or not os.path.isdir(book_dir):
+            book_dir = void_dir
+        self.book_dir = book_dir
+
+        # Resolve active_file: config → default to book_dir/0.txt
+        active_file = self.config.get('active_file', '')
+        if not active_file or not os.path.isfile(active_file):
+            active_file = os.path.join(self.book_dir, '0.txt')
+        self.book_files = []    # ordered list of .txt filenames in book_dir
+        self.book_ring = LineRing()
+
         self.opacity = 1.0
         self.txt_files = []
         self.current_file_index = 0
-        self.current_view = 0  # 0=F1, 1=F2, 2=F3
+        self.current_view = 0  # 0=F1, 1=F2, 2=F3(book), 3=F4(vault)
         self.use_spacebar_for_void = self.config.get('void_key', 'enter') == 'space'
         self._pending_vault_remove = False  # True when staging a vault line in F1
         self._para_focus = False            # True when in paragraph focus mode
@@ -163,7 +183,7 @@ class FullscreenCircleApp(QMainWindow):
         self.entry.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.entry.setFocus()
 
-        # Doc ring (0.txt lines, ordered) and vault ring (other files, shuffled)
+        # Doc ring (active file lines, ordered) and vault ring (void files, shuffled)
         self.line_ring = LineRing()
         self.vault_ring = LineRing()
 
@@ -171,13 +191,14 @@ class FullscreenCircleApp(QMainWindow):
         self.stack = QStackedWidget()
         self.normal_view = NormalView(self)
         self.circular_view = None   # F2: CircularView over doc ring
-        self.vault_view = None      # F3: CircularView over vault ring
+        self.book_view = None       # F3: CircularView over book_ring (filenames)
+        self.vault_view = None      # F4: CircularView over vault ring
         self.stack.addWidget(self.normal_view)
 
-        # File setup — write target is always 0.txt
-        self.current_file_path = os.path.join(self.void_dir, '0.txt')
-        self.void_file_path = self.current_file_path
-        os.makedirs(self.void_dir, exist_ok=True)
+        # File setup — active file is configurable (defaults to book_dir/0.txt)
+        self.current_file_path = active_file
+        self.void_file_path = os.path.join(self.void_dir, '0.txt')  # fallback for file commands
+        os.makedirs(self.book_dir, exist_ok=True)
         if not os.path.exists(self.current_file_path):
             open(self.current_file_path, 'w', encoding='utf-8').close()
 
@@ -187,6 +208,7 @@ class FullscreenCircleApp(QMainWindow):
 
         self.load_doc_lines()
         self.load_vault_lines()
+        self._load_book_order()
 
         # Void key connection
         self._print_void_mode_status()
@@ -214,17 +236,12 @@ class FullscreenCircleApp(QMainWindow):
         if not new_dir or new_dir == self.void_dir:
             return
         self.void_dir = new_dir
+        self.void_file_path = os.path.join(self.void_dir, '0.txt')
         self.config['void_dir'] = new_dir
         _save_config(self.config)
-
-        self.current_file_path = os.path.join(self.void_dir, '0.txt')
-        self.void_file_path = self.current_file_path
         os.makedirs(self.void_dir, exist_ok=True)
-        if not os.path.exists(self.current_file_path):
-            open(self.current_file_path, 'w', encoding='utf-8').close()
 
         self.scan_txt_files()
-        self.load_doc_lines()
         self.load_vault_lines()
         self.switch_to_view(self.current_view)
         print(f"📁 Void dir changed to: {new_dir}")
@@ -232,8 +249,8 @@ class FullscreenCircleApp(QMainWindow):
     # ── Loaders ───────────────────────────────────────────────────────────────
 
     def load_doc_lines(self):
-        """Load 0.txt into the doc ring (ordered, no shuffle). Preserves index."""
-        doc_path = os.path.join(self.void_dir, '0.txt')
+        """Load active file into the doc ring (ordered, no shuffle). Preserves index."""
+        doc_path = self.current_file_path
         lines = []
         try:
             with open(doc_path, 'r', encoding='utf-8') as f:
@@ -242,7 +259,7 @@ class FullscreenCircleApp(QMainWindow):
                     if s:
                         lines.append(s)
         except Exception as e:
-            print(f"⚠️ Error reading 0.txt: {e}")
+            print(f"⚠️ Error reading {os.path.basename(doc_path)}: {e}")
         # Ensure a leading dot so the last paragraph and first paragraph
         # are always separated when wrapping around the ring.
         if lines and lines[0] != '.':
@@ -253,7 +270,7 @@ class FullscreenCircleApp(QMainWindow):
         if self.circular_view:
             self.circular_view.ring = self.line_ring
             self.circular_view._offset = 0.0
-        print(f"📄 {len(lines)} lines loaded from 0.txt")
+        print(f"📄 {len(lines)} lines loaded from {os.path.basename(doc_path)}")
 
     def load_vault_lines(self):
         """Load all .txt files except 0.txt into vault ring (shuffled)."""
@@ -330,21 +347,23 @@ class FullscreenCircleApp(QMainWindow):
 
     def switch_to_view(self, view_index):
         # Cancel staged vault line if user navigates away without voiding
-        if view_index == 2:
+        if view_index == 3:
             self._pending_vault_remove = False
         old_view = self.current_view
         self.current_view = view_index
         print(f"📍 F{old_view+1} → F{view_index+1} | Index: {self.line_ring.index} | Line: '{self.line_ring.current()}'")
 
-        if view_index == 0:  # F1 — write/navigate 0.txt
+        if view_index == 0:  # F1 — write/navigate active file
             if self.circular_view:
                 self.circular_view.edit_mode = False
                 self.circular_view.editor.hide()
+            if self.book_view:
+                self.book_view.edit_mode = False
+                self.book_view.editor.hide()
             self.stack.setCurrentWidget(self.normal_view)
             self.entry.show()
             self.entry.raise_()
-            # Anchor F1 to the line currently selected in F2 so edits/inserts
-            # happen at that position, not appended to the end of the file.
+            # Anchor F1 to the line currently selected in F2
             if old_view == 1 and self.line_ring.current() != '.':
                 self.current_active_line_index = self.line_ring.index
                 self.last_inserted_index = self.line_ring.index
@@ -361,6 +380,8 @@ class FullscreenCircleApp(QMainWindow):
                 self.circular_view.editor.textEdited.connect(self._doc_live_save)
                 self.circular_view.editor.upPressed.connect(lambda: self._doc_navigate(-1))
                 self.circular_view.editor.downPressed.connect(lambda: self._doc_navigate(1))
+                self.circular_view.editor.backspaceAtStart.connect(self._doc_join_prev)
+                self.circular_view.editor.splitAtCursor.connect(self._doc_split_line)
                 self.stack.addWidget(self.circular_view)
             else:
                 self.circular_view.ring = self.line_ring
@@ -371,7 +392,30 @@ class FullscreenCircleApp(QMainWindow):
             self.circular_view.update()
             self._doc_show_editor()
 
-        elif view_index == 2:  # F3 — vault browser
+        elif view_index == 2:  # F3 — book browser
+            self._load_book_order()
+            if not self.book_view:
+                self.book_view = CircularView(self.book_ring, self)
+                self.book_view.setFont(self._app_font)
+                self.book_view.editor.returnPressed.disconnect()
+                self.book_view.editor.returnPressed.connect(self._book_confirm_edit)
+                self.book_view.editor.splitAtCursor.connect(lambda pos: self._book_confirm_edit())
+                self.book_view.editor.upPressed.connect(lambda: self._book_navigate(-1))
+                self.book_view.editor.downPressed.connect(lambda: self._book_navigate(1))
+                self.stack.addWidget(self.book_view)
+            else:
+                self.book_view.ring = self.book_ring
+                self.book_view._offset = 0.0
+            # Sync cursor to active file
+            active_fname = os.path.basename(self.current_file_path)
+            if active_fname in self.book_files:
+                self.book_ring.index = self.book_files.index(active_fname)
+            self.stack.setCurrentWidget(self.book_view)
+            self.entry.hide()
+            self.book_view.update()
+            self._book_show_editor()
+
+        elif view_index == 3:  # F4 — vault browser
             if not self.vault_view:
                 self.vault_view = CircularView(self.vault_ring, self)
                 self.vault_view.setFont(self._app_font)
@@ -390,8 +434,8 @@ class FullscreenCircleApp(QMainWindow):
             self._vault_show_editor()
 
     def auto_save_circular(self):
-        """Save doc ring state to 0.txt."""
-        doc_path = os.path.join(self.void_dir, '0.txt')
+        """Save doc ring state to active file."""
+        doc_path = self.current_file_path
         try:
             with open(doc_path, 'w', encoding='utf-8') as f:
                 for line in self.line_ring.lines:
@@ -399,6 +443,106 @@ class FullscreenCircleApp(QMainWindow):
             print(f"💾 Saved to 0.txt (index={self.line_ring.index})")
         except Exception as e:
             print(f"❌ Save error: {e}")
+
+    # ── Book order ────────────────────────────────────────────────────────────
+
+    def _load_book_order(self):
+        """Load ordered file list from _book_order.json, appending any unlisted files."""
+        order_path = os.path.join(self.book_dir, '_book_order.json')
+        try:
+            actual = sorted(f for f in os.listdir(self.book_dir)
+                            if f.lower().endswith('.txt'))
+        except Exception:
+            actual = []
+        actual_set = set(actual)
+        if os.path.exists(order_path):
+            try:
+                with open(order_path, 'r', encoding='utf-8') as f:
+                    saved = json.load(f)
+                ordered = [f for f in saved if f in actual_set]
+                remaining = [f for f in actual if f not in set(ordered)]
+                self.book_files = ordered + remaining
+            except Exception:
+                self.book_files = actual
+        else:
+            self.book_files = actual
+        self._rebuild_book_ring()
+        print(f"📚 Book: {len(self.book_files)} files in {os.path.basename(self.book_dir)}")
+
+    def _save_book_order(self):
+        order_path = os.path.join(self.book_dir, '_book_order.json')
+        try:
+            with open(order_path, 'w', encoding='utf-8') as f:
+                json.dump(self.book_files, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"⚠️ Error saving book order: {e}")
+
+    def _rebuild_book_ring(self):
+        display = [os.path.splitext(f)[0] for f in self.book_files]
+        self.book_ring = LineRing(display if display else ["(empty)"])
+        if self.book_view:
+            self.book_view.ring = self.book_ring
+            self.book_view._offset = 0.0
+
+    def _set_active_file(self, path):
+        """Change active file (and book_dir if it changed), reload doc ring."""
+        self.current_file_path = path
+        new_book_dir = os.path.dirname(os.path.abspath(path))
+        if new_book_dir != self.book_dir:
+            self.book_dir = new_book_dir
+            self.config['book_dir'] = new_book_dir
+            self._load_book_order()
+        self.config['active_file'] = path
+        _save_config(self.config)
+        os.makedirs(self.book_dir, exist_ok=True)
+        if not os.path.exists(path):
+            open(path, 'w', encoding='utf-8').close()
+        self.load_doc_lines()
+        # Reset navigation state for new file
+        self.current_active_line_index = None
+        self.last_inserted_index = None
+        print(f"📄 Active: {os.path.basename(path)}")
+
+    # ── Book directory / file pickers ─────────────────────────────────────────
+
+    def pick_active_file(self):
+        """Ctrl+F2: pick any .txt file → sets active file + book folder."""
+        path, _ = QFileDialog.getOpenFileName(
+            None, "Select Active File",
+            self.book_dir,
+            "Text files (*.txt)"
+        )
+        if not path or not os.path.isfile(path):
+            return
+        self._set_active_file(path)
+        self.switch_to_view(self.current_view)
+
+    def pick_book_directory(self):
+        """Ctrl+F3: pick book folder, switch active file if it's outside new folder."""
+        path = QFileDialog.getExistingDirectory(
+            None, "Select Book Folder",
+            self.book_dir,
+            QFileDialog.Option.ShowDirsOnly
+        )
+        if not path or not os.path.isdir(path):
+            return
+        self.book_dir = path
+        self.config['book_dir'] = path
+        _save_config(self.config)
+        self._load_book_order()
+        # If active file is outside the new book_dir, switch to first book file
+        norm_path = os.path.normpath(path)
+        norm_active = os.path.normpath(os.path.dirname(self.current_file_path))
+        if norm_active != norm_path:
+            if self.book_files:
+                self._set_active_file(os.path.join(self.book_dir, self.book_files[0]))
+            else:
+                new_active = os.path.join(self.book_dir, '0.txt')
+                open(new_active, 'a', encoding='utf-8').close()
+                self._set_active_file(new_active)
+                self._load_book_order()
+        print(f"📁 Book dir: {path}")
+        self.switch_to_view(self.current_view)
 
     def _doc_show_editor(self):
         """Show F2 editor with current doc line, cursor at start."""
@@ -511,6 +655,140 @@ class FullscreenCircleApp(QMainWindow):
         view.editor.show()
         view.editor.setFocus()
         view.update()
+
+    # ── Book browser (F3) ─────────────────────────────────────────────────────
+
+    def _book_show_editor(self):
+        """Show F3 editor with current filename (no extension), cursor at start."""
+        if not self.book_ring.lines:
+            return
+        view = self.book_view
+        view.edit_mode = True
+        center_y = view.height() // 2
+        editor_width = min(view.width() - 100, 800)
+        view.editor.setFixedWidth(editor_width)
+        view.editor.move(
+            (view.width() - editor_width) // 2,
+            center_y - view.editor.sizeHint().height() // 2
+        )
+        view.editor.setText(self.book_ring.current())
+        view.editor.setCursorPosition(0)
+        view.editor.setReadOnly(False)
+        view.editor.show()
+        view.editor.setFocus()
+        view.update()
+
+    def _book_navigate(self, delta):
+        """Non-looping navigation through book files."""
+        new_idx = self.book_ring.index + delta
+        if new_idx < 0 or new_idx >= len(self.book_ring.lines):
+            return  # stop at boundaries
+        self.book_ring.index = new_idx
+        self.book_view._offset = 0.0
+        self.book_view.editor.setText(self.book_ring.current())
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+
+    def _book_confirm_edit(self):
+        """Enter in F3: rename file if name changed, then activate it."""
+        idx = self.book_ring.index
+        if idx >= len(self.book_files):
+            return
+        new_name = self.book_view.editor.text().strip()
+        if not new_name:
+            return
+        old_fname = self.book_files[idx]
+        new_fname = new_name + '.txt'
+        if new_fname != old_fname:
+            old_path = os.path.join(self.book_dir, old_fname)
+            new_path = os.path.join(self.book_dir, new_fname)
+            try:
+                os.rename(old_path, new_path)
+                if self.current_file_path == old_path:
+                    self.current_file_path = new_path
+                    self.config['active_file'] = new_path
+                    _save_config(self.config)
+                self.book_files[idx] = new_fname
+                self.book_ring.lines[idx] = new_name
+                self._save_book_order()
+                print(f"📝 Renamed: {old_fname} → {new_fname}")
+            except Exception as e:
+                print(f"⚠️ Rename failed: {e}")
+                return
+        self._set_active_file(os.path.join(self.book_dir, self.book_files[idx]))
+        self.switch_to_view(0)
+
+    def _book_swap_up(self):
+        idx = self.book_ring.index
+        if idx <= 0:
+            return
+        self.book_files[idx], self.book_files[idx-1] = self.book_files[idx-1], self.book_files[idx]
+        self.book_ring.lines[idx], self.book_ring.lines[idx-1] = self.book_ring.lines[idx-1], self.book_ring.lines[idx]
+        self.book_ring.index = idx - 1
+        self._save_book_order()
+        self.book_view._offset = 0.0
+        self.book_view.editor.setText(self.book_ring.current())
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+
+    def _book_swap_down(self):
+        idx = self.book_ring.index
+        if idx >= len(self.book_files) - 1:
+            return
+        self.book_files[idx], self.book_files[idx+1] = self.book_files[idx+1], self.book_files[idx]
+        self.book_ring.lines[idx], self.book_ring.lines[idx+1] = self.book_ring.lines[idx+1], self.book_ring.lines[idx]
+        self.book_ring.index = idx + 1
+        self._save_book_order()
+        self.book_view._offset = 0.0
+        self.book_view.editor.setText(self.book_ring.current())
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+
+    def _book_rebase(self):
+        """Ctrl+9 in F3: rotate book_files so selected file becomes first."""
+        idx = self.book_ring.index
+        if idx == 0:
+            return
+        self.book_files = self.book_files[idx:] + self.book_files[:idx]
+        self.book_ring.lines = [os.path.splitext(f)[0] for f in self.book_files]
+        self.book_ring.index = 0
+        self._save_book_order()
+        self.book_view._offset = 0.0
+        self.book_view.editor.setText(self.book_ring.current())
+        self.book_view.editor.setCursorPosition(0)
+        self.book_view.update()
+        print(f"📚 Rebase: '{self.book_files[0]}' is now first")
+
+    def print_book(self):
+        """Ctrl+P in F3: print all chapters in order via system dialog."""
+        from PyQt6.QtGui import QTextDocument
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        dialog = QPrintDialog(printer, self)
+        if dialog.exec() != QPrintDialog.DialogCode.Accepted:
+            return
+        html_parts = ['<html><body style="color:black;background:white;'
+                      'font-family:Consolas,monospace;">']
+        for i, fname in enumerate(self.book_files):
+            fpath = os.path.join(self.book_dir, fname)
+            title = os.path.splitext(fname)[0]
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    lines = [l.strip() for l in f if l.strip() and l.strip() != '.']
+            except Exception:
+                lines = []
+            if i > 0:
+                html_parts.append('<div style="page-break-before:always;"></div>')
+            html_parts.append(
+                f'<h2 style="text-align:center;margin:3em 0 2em;">{title}</h2>'
+            )
+            for line in lines:
+                html_parts.append(
+                    f'<p style="text-align:center;margin:0.4em 0;">{line}</p>'
+                )
+        html_parts.append('</body></html>')
+        doc = QTextDocument()
+        doc.setHtml(''.join(html_parts))
+        doc.print_(printer)
 
     def _vault_navigate(self, delta):
         """Move vault ring and update inline editor text."""
@@ -886,26 +1164,31 @@ class FullscreenCircleApp(QMainWindow):
             self.switch_to_view(1); event.accept(); return
         if self._matches(key, mods, 'view_f3'):
             self.switch_to_view(2); event.accept(); return
+        if self._matches(key, mods, 'view_f4'):
+            self.switch_to_view(3); event.accept(); return
 
-        # Global: rebase doc ring (F2 only, enforced inside)
-        if self._matches(key, mods, 'rebase'):
+        # Global: rebase (F2 only, enforced inside; F3 handled view-specifically)
+        if self._matches(key, mods, 'rebase') and self.current_view != 2:
             self.rebase_to_index_zero(); event.accept(); return
 
         # Global: reshuffle vault
         if self._matches(key, mods, 'reshuffle'):
             self.load_vault_lines()
-            if self.current_view == 2 and self.vault_view:
+            if self.current_view == 3 and self.vault_view:
                 self.vault_view.update()
             event.accept(); return
 
-        # Global: pick directory
+        # Global: file/folder pickers
+        if self._matches(key, mods, 'pick_active_file'):
+            self.pick_active_file(); event.accept(); return
+        if self._matches(key, mods, 'pick_book_dir'):
+            self.pick_book_directory(); event.accept(); return
         if self._matches(key, mods, 'pick_dir'):
-            self.change_void_directory()
-            event.accept(); return
+            self.change_void_directory(); event.accept(); return
 
-        # Global: print
-        if self._matches(key, mods, 'print_doc'):
-            self.print_doc(); event.accept(); return
+        # Print book (F3 only)
+        if self._matches(key, mods, 'print_doc') and self.current_view == 2:
+            self.print_book(); event.accept(); return
 
         # Global: screenshot / open folder
         if self._matches(key, mods, 'screenshot'):
@@ -930,6 +1213,8 @@ class FullscreenCircleApp(QMainWindow):
             self._handle_f2_keys(key, mods, event)
         elif self.current_view == 2:
             self._handle_f3_keys(key, mods, event)
+        elif self.current_view == 3:
+            self._handle_f4_keys(key, mods, event)
 
     def _handle_f1_keys(self, key, mods):
         if self._matches(key, mods, 'quit'):
@@ -994,8 +1279,20 @@ class FullscreenCircleApp(QMainWindow):
                 self.switch_to_view(0)
 
     def _handle_f3_keys(self, key, mods, event):
-        # Up/Down/Enter/Ctrl combos are handled by vault_view.editor signals.
-        # Only catch Escape (exit vault) and quit here as fallback.
+        # Up/Down/Enter handled by book_view.editor signals.
+        if key == Qt.Key.Key_Escape:
+            self.switch_to_view(0)
+        elif self._matches(key, mods, 'swap_up'):
+            self._book_swap_up(); event.accept()
+        elif self._matches(key, mods, 'swap_down'):
+            self._book_swap_down(); event.accept()
+        elif self._matches(key, mods, 'rebase'):
+            self._book_rebase(); event.accept()
+        elif self._matches(key, mods, 'quit'):
+            self.close()
+
+    def _handle_f4_keys(self, key, mods, event):
+        # Up/Down/Enter handled by vault_view.editor signals.
         if key == Qt.Key.Key_Escape:
             self.vault_view.edit_mode = False
             self.vault_view.editor.hide()
