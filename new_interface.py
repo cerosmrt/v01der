@@ -48,7 +48,8 @@ DEFAULT_CONFIG = {
         "pick_dir": "Ctrl+F4",
         "screenshot": "F12",
         "open_screenshots": "Ctrl+F12",
-        "print_doc": "Ctrl+P"
+        "print_doc": "Ctrl+P",
+        "reformat_file": "Ctrl+Shift+F"
     }
 }
 
@@ -62,6 +63,7 @@ _KEY_MAP = {
     'F12': Qt.Key.Key_F12,
     'PageUp': Qt.Key.Key_PageUp, 'PageDown': Qt.Key.Key_PageDown,
     '0': Qt.Key.Key_0, '9': Qt.Key.Key_9, 'R': Qt.Key.Key_R, 'P': Qt.Key.Key_P,
+    'F': Qt.Key.Key_F,
     '.': Qt.Key.Key_Period, '*': Qt.Key.Key_Asterisk,
 }
 
@@ -443,6 +445,139 @@ class FullscreenCircleApp(QMainWindow):
             print(f"💾 Saved to 0.txt (index={self.line_ring.index})")
         except Exception as e:
             print(f"❌ Save error: {e}")
+
+    # ── Reformat ─────────────────────────────────────────────────────────────
+
+    def reformat_active_file(self):
+        """Ctrl+Shift+F: split raw pasted text into one sentence per line.
+
+        Rules:
+        - Blank lines (paragraph breaks) → '.' separator line
+        - Within a paragraph, split at sentence boundaries:
+          period (or ! or ?) followed by a space and an uppercase letter
+        - Exceptions (no split):
+          * Ellipsis: ...
+          * Abbreviations: Mr. Dr. Mrs. Ms. St. Prof. Jr. Sr.
+          * Spanish abbrevs: Ud. Vd. pág. núm. art. ed. vol. fig. cap.
+          * Latin: e.g. i.e. etc. vs. cf.
+          * Initials: single letter followed by dot (e.g. J. K.)
+          * Decimal numbers: digit.digit
+        """
+        import re
+
+        # Abbreviations that should NOT trigger a split
+        ABBREVS = {
+            'mr', 'dr', 'mrs', 'ms', 'st', 'prof', 'jr', 'sr',
+            'ud', 'vd', 'pág', 'núm', 'art', 'ed', 'vol', 'fig', 'cap',
+            'e.g', 'i.e', 'etc', 'vs', 'cf', 'no',
+        }
+
+        def is_exception(text, dot_pos):
+            """Return True if the dot at dot_pos should NOT be a sentence boundary."""
+            # Ellipsis
+            if text[dot_pos:dot_pos+3] == '...':
+                return True
+            if dot_pos >= 2 and text[dot_pos-2:dot_pos] == '..':
+                return True
+            # Decimal number: digit.digit
+            if (dot_pos > 0 and text[dot_pos-1].isdigit() and
+                    dot_pos+1 < len(text) and text[dot_pos+1].isdigit()):
+                return True
+            # Single initial: one uppercase letter before dot
+            if dot_pos > 0 and text[dot_pos-1].isupper():
+                # Check it's a standalone letter (preceded by space or start)
+                if dot_pos == 1 or text[dot_pos-2] in (' ', '\t'):
+                    return True
+            # Known abbreviation: word before dot matches list
+            word_start = dot_pos - 1
+            while word_start > 0 and text[word_start-1].isalpha():
+                word_start -= 1
+            word = text[word_start:dot_pos].lower()
+            if word in ABBREVS:
+                return True
+            return False
+
+        doc_path = self.current_file_path
+        try:
+            with open(doc_path, 'r', encoding='utf-8') as f:
+                raw = f.read()
+        except Exception as e:
+            print(f"❌ Reformat read error: {e}")
+            return
+
+        # Split into paragraphs (one or more blank lines)
+        paragraphs = re.split(r'\n\s*\n+', raw.strip())
+
+        result_lines = []
+        for para_idx, para in enumerate(paragraphs):
+            # Collapse internal newlines/whitespace into single spaces
+            text = re.sub(r'\s+', ' ', para.strip())
+
+            if not text:
+                continue
+
+            # If paragraph is just a dot separator, keep it
+            if text == '.':
+                result_lines.append('.')
+                continue
+
+            # Add dot separator between paragraphs (not before the first)
+            if para_idx > 0:
+                result_lines.append('.')
+
+            # Split text at sentence boundaries
+            sentences = []
+            current_start = 0
+            i = 0
+            while i < len(text):
+                ch = text[i]
+                if ch in '.!?':
+                    if ch == '.' and is_exception(text, i):
+                        i += 1
+                        continue
+                    # Consume consecutive punctuation (e.g. ?" or .")
+                    end = i + 1
+                    while end < len(text) and text[end] in '.!?\'"»)':
+                        end += 1
+                    # Only split if followed by whitespace + uppercase, or end of text
+                    rest = text[end:]
+                    if not rest.strip():
+                        # End of paragraph
+                        sentences.append(text[current_start:end].strip())
+                        current_start = end
+                        i = end
+                        continue
+                    m = re.match(r'\s+([A-ZÁÉÍÓÚÜÑ"«¿¡(])', rest)
+                    if m:
+                        sentences.append(text[current_start:end].strip())
+                        current_start = end + m.end() - 1
+                        i = current_start
+                        continue
+                i += 1
+
+            # Remainder
+            tail = text[current_start:].strip()
+            if tail:
+                sentences.append(tail)
+
+            result_lines.extend(s for s in sentences if s)
+
+        # Ensure leading dot
+        if result_lines and result_lines[0] != '.':
+            result_lines.insert(0, '.')
+
+        try:
+            with open(doc_path, 'w', encoding='utf-8') as f:
+                for line in result_lines:
+                    f.write(line + '\n')
+            print(f"✅ Reformatted: {len(result_lines)} lines → {doc_path}")
+        except Exception as e:
+            print(f"❌ Reformat write error: {e}")
+            return
+
+        # Reload into ring
+        self.load_doc_lines()
+        self._doc_show_editor()
 
     # ── Book order ────────────────────────────────────────────────────────────
 
@@ -1344,6 +1479,9 @@ class FullscreenCircleApp(QMainWindow):
         elif self._matches(key, mods, 'para_next'):
             self.goto_next_dot()
             self._doc_show_editor()
+            event.accept()
+        elif self._matches(key, mods, 'reformat_file'):
+            self.reformat_active_file()
             event.accept()
         elif key == Qt.Key.Key_Escape:
             if self._para_focus:
