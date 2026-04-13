@@ -579,6 +579,66 @@ class FullscreenCircleApp(QMainWindow):
         self.circular_view.editor.setReadOnly(self.line_ring.current() == '.')
         self.circular_view.update()
 
+    def _doc_join_prev(self):
+        """Backspace at line start: join current line with previous (blocked by dots)."""
+        ring = self.line_ring
+        cur = ring.index
+        n = len(ring.lines)
+        if n < 2:
+            return
+        prev = (cur - 1) % n
+        if ring.lines[prev] == '.':
+            return  # never join across a paragraph boundary
+        join_pos = len(ring.lines[prev])
+        ring.lines[prev] = ring.lines[prev] + ring.lines[cur]
+        ring.lines.pop(cur)
+        ring.index = prev
+        # Adjust para_focus indices
+        if self._para_focus:
+            self._para_focus_content = [
+                i if i < cur else i - 1
+                for i in self._para_focus_content
+                if i != cur
+            ]
+            if self.circular_view:
+                dot_idx = self._get_focus_dot_idx()
+                self.circular_view.focus_indices = set(self._para_focus_content) | {dot_idx}
+        self.auto_save_circular()
+        self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(ring.current())
+        self.circular_view.editor.setCursorPosition(join_pos)
+        self.circular_view.editor.setReadOnly(False)
+        self.circular_view.update()
+
+    def _doc_split_line(self, pos):
+        """Split current line at cursor pos into two lines."""
+        ring = self.line_ring
+        cur = ring.index
+        text = ring.lines[cur]
+        before, after = text[:pos], text[pos:]
+        ring.lines[cur] = before
+        ring.lines.insert(cur + 1, after)
+        ring.index = cur + 1
+        # Adjust para_focus indices
+        if self._para_focus:
+            self._para_focus_content = [
+                i if i <= cur else i + 1
+                for i in self._para_focus_content
+            ]
+            # Insert new line right after cur in focus
+            if cur in self._para_focus_content:
+                ins = self._para_focus_content.index(cur) + 1
+                self._para_focus_content.insert(ins, cur + 1)
+            if self.circular_view:
+                dot_idx = self._get_focus_dot_idx()
+                self.circular_view.focus_indices = set(self._para_focus_content) | {dot_idx}
+        self.auto_save_circular()
+        self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(ring.current())
+        self.circular_view.editor.setCursorPosition(0)
+        self.circular_view.editor.setReadOnly(False)
+        self.circular_view.update()
+
     def _doc_live_save(self, text):
         """Save on every keystroke in F2 editor."""
         if text.strip():
@@ -636,6 +696,19 @@ class FullscreenCircleApp(QMainWindow):
                 break
             idx = (idx - 1) % n
         self._doc_show_editor()
+
+    def _get_focus_dot_idx(self):
+        """Return the ring index of the dot preceding the focused paragraph."""
+        ring = self.line_ring
+        n = len(ring.lines)
+        if not self._para_focus_content:
+            return 0
+        idx = (self._para_focus_content[0] - 1) % n
+        for _ in range(n):
+            if ring.lines[idx] == '.':
+                return idx
+            idx = (idx - 1) % n
+        return 0
 
     def _vault_show_editor(self):
         """Show the vault inline editor with the current vault line, cursor at start."""

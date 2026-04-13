@@ -220,23 +220,31 @@ class CircularView(QWidget):
 class CustomLineEdit(QLineEdit):
     upPressed = pyqtSignal()
     downPressed = pyqtSignal()
+    backspaceAtStart = pyqtSignal()
+    splitAtCursor = pyqtSignal(int)
 
     def keyPressEvent(self, event):
         key = event.key()
         mods = event.modifiers()
+        ctrl = bool(mods & Qt.KeyboardModifier.ControlModifier)
+
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self.returnPressed.emit()
+            pos = self.cursorPosition()
+            if pos == 0:
+                self.returnPressed.emit()
+            else:
+                self.splitAtCursor.emit(pos)
             event.accept()
-        elif key == Qt.Key.Key_Up and mods == Qt.KeyboardModifier.NoModifier:
+        elif key == Qt.Key.Key_Up and not ctrl:
             self.upPressed.emit()
             event.accept()
-        elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
+        elif key == Qt.Key.Key_Down and not ctrl:
             self.downPressed.emit()
             event.accept()
-        elif mods & Qt.KeyboardModifier.ControlModifier and key in (
-            Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_F12
-        ):
-            # Forward only these Ctrl combos to parent (opacity, screenshots)
+        elif key == Qt.Key.Key_Backspace and self.cursorPosition() == 0 and not self.hasSelectedText():
+            self.backspaceAtStart.emit()
+            event.accept()
+        elif ctrl and key in (Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_F12):
             event.ignore()
         else:
             super().keyPressEvent(event)
