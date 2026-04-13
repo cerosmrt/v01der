@@ -235,10 +235,10 @@ class CustomLineEdit(QLineEdit):
             else:
                 self.splitAtCursor.emit(pos)
             event.accept()
-        elif key == Qt.Key.Key_Up and not ctrl:
+        elif key == Qt.Key.Key_Up and mods == Qt.KeyboardModifier.NoModifier:
             self.upPressed.emit()
             event.accept()
-        elif key == Qt.Key.Key_Down and not ctrl:
+        elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
             self.downPressed.emit()
             event.accept()
         elif key == Qt.Key.Key_Backspace and self.cursorPosition() == 0 and not self.hasSelectedText():
