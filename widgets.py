@@ -86,7 +86,10 @@ class NoiseOverlay(QWidget):
     
     def paintEvent(self, event):
         """Dibuja el ruido con opacidad baja"""
-        if self.noise_pixmap:
-            painter = QPainter(self)
-            painter.setOpacity(0.09)
-            painter.drawPixmap(0, 0, self.noise_pixmap)
+        if not self.noise_pixmap or self.width() == 0 or self.height() == 0:
+            return
+        painter = QPainter(self)
+        if not painter.isActive():
+            return
+        painter.setOpacity(0.09)
+        painter.drawPixmap(0, 0, self.noise_pixmap)

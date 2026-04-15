@@ -154,7 +154,11 @@ class CircularView(QWidget):
         return max(0.0, min(self.max_alpha, alpha))
 
     def paintEvent(self, event):
+        if self.width() == 0 or self.height() == 0:
+            return
         painter = QPainter(self)
+        if not painter.isActive():
+            return
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         fm = QFontMetrics(self.font())
 
