@@ -584,8 +584,10 @@ class FullscreenCircleApp(QMainWindow):
             print(f"❌ Reformat read error: {e}")
             return
 
+        # Treat '.' separator lines as paragraph breaks (makes reformat idempotent)
+        normalized = re.sub(r'(?m)^\.$', '', raw.strip())
         # Split into paragraphs (one or more blank lines)
-        paragraphs = re.split(r'\n\s*\n+', raw.strip())
+        paragraphs = re.split(r'\n\s*\n+', normalized.strip())
 
         result_lines = []
         for para_idx, para in enumerate(paragraphs):
@@ -995,21 +997,19 @@ class FullscreenCircleApp(QMainWindow):
         if fidx < len(self.book_files):
             self._set_active_file(os.path.join(self.book_dir, self.book_files[fidx]))
 
-    def _book_confirm_edit(self):
-        """Enter in F3: rename file if name changed, then activate it."""
-        # Never act on a dot separator position
+    def _book_try_rename(self):
+        """Rename the current book file if the editor text has changed.
+        Returns False if the name is invalid (caller should abort navigation)."""
         if self.book_ring.current() == '.':
-            return
+            return True
         fidx = self._book_file_idx()
         if fidx >= len(self.book_files):
-            return
+            return True
         new_name = self.book_view.editor.text().strip()
-        # Reject empty names or names starting with '.' (would create '..txt' etc.)
         if not new_name or new_name.startswith('.'):
-            print(f"⚠️ Nombre inválido: '{new_name}'")
-            # Restore original name in editor
+            # Restore original name so the ring stays consistent
             self.book_view.editor.setText(self.book_ring.current())
-            return
+            return True  # invalid but non-fatal: just keep original
         old_fname = self.book_files[fidx]
         new_fname = new_name + '.txt'
         if new_fname != old_fname:
@@ -1027,9 +1027,20 @@ class FullscreenCircleApp(QMainWindow):
                 print(f"📝 Renamed: {old_fname} → {new_fname}")
             except Exception as e:
                 print(f"⚠️ Rename failed: {e}")
-                return
+                return False
+        return True
+
+    def _book_confirm_edit(self):
+        """Enter in F3: rename file if name changed, activate it, show content (F2)."""
+        if not self._book_try_rename():
+            return
+        if self.book_ring.current() == '.':
+            return
+        fidx = self._book_file_idx()
+        if fidx >= len(self.book_files):
+            return
         self._set_active_file(os.path.join(self.book_dir, self.book_files[fidx]))
-        self.switch_to_view(0)
+        self.switch_to_view(1)
 
     def _book_swap_up(self):
         """Alt+Up in F3: move current file one position earlier."""
