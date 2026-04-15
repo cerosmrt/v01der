@@ -50,7 +50,8 @@ DEFAULT_CONFIG = {
         "screenshot": "F12",
         "open_screenshots": "Ctrl+F12",
         "print_doc": "Ctrl+P",
-        "reformat_file": "Ctrl+Shift+F"
+        "reformat_file": "Ctrl+Shift+F",
+        "backup": "Ctrl+B"
     }
 }
 
@@ -64,7 +65,7 @@ _KEY_MAP = {
     'F12': Qt.Key.Key_F12,
     'PageUp': Qt.Key.Key_PageUp, 'PageDown': Qt.Key.Key_PageDown,
     '0': Qt.Key.Key_0, '9': Qt.Key.Key_9, 'R': Qt.Key.Key_R, 'P': Qt.Key.Key_P,
-    'F': Qt.Key.Key_F,
+    'F': Qt.Key.Key_F, 'B': Qt.Key.Key_B,
     '.': Qt.Key.Key_Period, '*': Qt.Key.Key_Asterisk,
 }
 
@@ -136,8 +137,6 @@ def _zodiac_sign(month, day):
     else:
         return 'sagitario'
 
-
-BACKUP_ROOT = r'C:\Users\feder\Downloads\_voider_backups'
 
 
 class FullscreenCircleApp(QMainWindow):
@@ -243,7 +242,6 @@ class FullscreenCircleApp(QMainWindow):
         self.load_doc_lines()
         self.load_vault_lines()
         self._load_book_order()
-        self._backup_void_dir()
 
         # Void key connection
         self._print_void_mode_status()
@@ -283,47 +281,40 @@ class FullscreenCircleApp(QMainWindow):
 
     # ── Backup ───────────────────────────────────────────────────────────────
 
-    def _backup_void_dir(self):
-        """On startup, copy all .txt files from void_dir to a timestamped folder.
-        Per day: keeps 1 frozen (first backup of the day) + 10 rotating.
-        Never deletes backups from other days.
-        Folder name: YYYY-MM-DD_HHMM_zodiacsign."""
+    def _backup_vault(self):
+        """Ctrl+B: pick a destination folder, copy void_dir there.
+        Folder name: {voidname}_{YY}-{MM}-{DD}({n})
+        where n is how many backups of this vault already exist in that destination."""
+        dest_root = QFileDialog.getExistingDirectory(
+            self, "Backup destination folder", os.path.expanduser("~"))
+        if not dest_root:
+            return  # cancelled
         try:
             now = datetime.datetime.now()
-            zodiac = _zodiac_sign(now.month, now.day)
-
-            # Manage today's backups: keep the first (frozen) + 10 rotating
-            os.makedirs(BACKUP_ROOT, exist_ok=True)
-            today_prefix = now.strftime('%Y-%m-%d')
-            todays = sorted(
-                [d for d in os.listdir(BACKUP_ROOT)
-                 if os.path.isdir(os.path.join(BACKUP_ROOT, d))
-                 and d.startswith(today_prefix)]
-            )  # sorted ascending = oldest first
-            if len(todays) >= 11:
-                # Keep index 0 (frozen first of day), delete oldest rotative (index 1)
-                to_delete = os.path.join(BACKUP_ROOT, todays[1])
-                shutil.rmtree(to_delete, ignore_errors=True)
-                print(f"🗑️  Rotativo eliminado: {todays[1]}")
-
-            folder_name = f"{now.strftime('%Y-%m-%d_%H%M')}_{zodiac}"
-            backup_dest = os.path.join(BACKUP_ROOT, folder_name)
+            src_dir = self.void_dir
+            vault_name = os.path.basename(os.path.normpath(src_dir))
+            date_str = now.strftime(f'{str(now.year)[2:]}-{now.strftime("%m-%d")}')
+            prefix = f"{vault_name}_{date_str}"
+            # Count existing backups of this vault on this date
+            existing = [d for d in os.listdir(dest_root)
+                        if os.path.isdir(os.path.join(dest_root, d))
+                        and d.startswith(f"{prefix}")]
+            n = len(existing) + 1
+            folder_name = f"{prefix}({n})"
+            backup_dest = os.path.join(dest_root, folder_name)
             os.makedirs(backup_dest, exist_ok=True)
             count = 0
-            for root, dirs, files in os.walk(self.void_dir):
-                dirs[:] = [d for d in dirs if d != '_backups']
+            for root, dirs, files in os.walk(src_dir):
                 for fname in files:
                     if not fname.lower().endswith('.txt'):
                         continue
                     src = os.path.join(root, fname)
-                    rel = os.path.relpath(root, self.void_dir)
+                    rel = os.path.relpath(root, src_dir)
                     dst_dir = os.path.join(backup_dest, rel)
                     os.makedirs(dst_dir, exist_ok=True)
                     shutil.copy2(src, os.path.join(dst_dir, fname))
                     count += 1
-
             print(f"📦 Backup: {count} archivos → {folder_name}")
-
         except Exception as e:
             print(f"⚠️ Backup error: {e}")
 
@@ -455,6 +446,7 @@ class FullscreenCircleApp(QMainWindow):
         elif view_index == 1:  # F2 — circular doc view
             if not self.circular_view:
                 self.circular_view = CircularView(self.line_ring, self)
+                self.circular_view.zero_marker = True
                 self.circular_view.setFont(self._app_font)
                 self.circular_view.editor.returnPressed.disconnect()
                 self.circular_view.editor.returnPressed.connect(self._doc_confirm_edit)
@@ -988,8 +980,8 @@ class FullscreenCircleApp(QMainWindow):
         return self.book_ring.index // 2
 
     def _book_navigate(self, delta):
-        """Non-looping navigation through book files, skipping dots."""
-        # Step by 2 to skip the dot before each filename
+        """Non-looping navigation through book files, skipping dots.
+        Activates the highlighted file immediately (no Enter needed)."""
         new_idx = self.book_ring.index + delta * 2
         if new_idx < 1 or new_idx >= len(self.book_ring.lines):
             return  # stop at boundaries
@@ -998,6 +990,10 @@ class FullscreenCircleApp(QMainWindow):
         self.book_view.editor.setText(self.book_ring.current())
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
+        # Activate immediately — no Enter required
+        fidx = self._book_file_idx()
+        if fidx < len(self.book_files):
+            self._set_active_file(os.path.join(self.book_dir, self.book_files[fidx]))
 
     def _book_confirm_edit(self):
         """Enter in F3: rename file if name changed, then activate it."""
@@ -1540,6 +1536,9 @@ class FullscreenCircleApp(QMainWindow):
         if self._matches(key, mods, 'opacity_down'):
             self.opacity = max(0.0, self.opacity - 0.1)
             self.setWindowOpacity(self.opacity)
+            event.accept(); return
+        if self._matches(key, mods, 'backup'):
+            self._backup_vault()
             event.accept(); return
 
         # View-specific

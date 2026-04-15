@@ -2,7 +2,7 @@ import math
 from PyQt6.QtWidgets import QWidget, QLineEdit
 
 from PyQt6.QtCore import Qt, QPropertyAnimation, pyqtProperty, QEasingCurve, pyqtSignal
-from PyQt6.QtGui import QPainter, QFontMetrics, QFont, QKeyEvent
+from PyQt6.QtGui import QPainter, QFontMetrics, QFont, QKeyEvent, QColor
 
 class CircularView(QWidget):
     line_saved = pyqtSignal()
@@ -21,6 +21,7 @@ class CircularView(QWidget):
         self.edit_mode = False
         self.insert_mode = False  # Nueva: modo insertar línea debajo
         self.focus_indices = None  # set of absolute ring indices to highlight in focus mode
+        self.zero_marker = False   # if True, dot at ring index 0 renders in red
         
         # Crear el editor
         self.editor = CustomLineEdit(self)
@@ -197,20 +198,18 @@ class CircularView(QWidget):
             if alpha < 0.01:
                 continue
 
-            # The separator at ring index 0 is the circular join point — show as '0'.
-            # Compute the single canonical offset that reaches position 0, closest to
-            # center, so wrapped copies don't also display as '0'.
             n = len(self.ring.lines)
             abs_idx = (self.ring.index + i) % n
-            zero_offset = (-self.ring.index) % n
-            if zero_offset > n // 2:
-                zero_offset -= n
-            display_text = '0' if (text == '.' and abs_idx == 0 and i == zero_offset) else text
+            is_zero_dot = self.zero_marker and text == '.' and abs_idx == 0
 
             painter.setOpacity(alpha)
+            if is_zero_dot:
+                painter.setPen(QColor(180, 0, 0))
             painter.drawText(0, draw_y, w, text_rect.height(),
                             Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
-                            display_text)
+                            text)
+            if is_zero_dot:
+                painter.setPen(self.palette().color(self.foregroundRole()))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
