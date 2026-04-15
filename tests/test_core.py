@@ -869,3 +869,164 @@ class TestReformatActiveFile:
         app2.reformat_active_file()
         result2 = p.read_text(encoding='utf-8')
         assert result1 == result2
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW: print_book / print_doc
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _make_print_app(tmp_path, book_files_content=None, active_content=None):
+    """
+    Build a minimal app for print tests.
+    book_files_content: dict {fname: text} written into tmp_path
+    active_content: text written as the active file
+    """
+    from new_interface import FullscreenCircleApp
+
+    # Write book files
+    book_dir = tmp_path / "book"
+    book_dir.mkdir()
+    fnames = []
+    if book_files_content:
+        for fname, text in book_files_content.items():
+            (book_dir / fname).write_text(text, encoding='utf-8')
+            fnames.append(fname)
+
+    # Active file
+    active_path = tmp_path / "active.txt"
+    if active_content is not None:
+        active_path.write_text(active_content, encoding='utf-8')
+    else:
+        active_path.write_text('', encoding='utf-8')
+
+    app = make_ring_app(['.'], tmp_file=str(active_path))
+    app.current_file_path = str(active_path)
+    app.book_dir = str(book_dir)
+    app.book_files = fnames
+    app._app_font = MagicMock()
+    app._app_font.family.return_value = 'Consolas'
+
+    for name in ('print_book', 'print_doc'):
+        if hasattr(FullscreenCircleApp, name):
+            app.__dict__[name] = types.MethodType(
+                getattr(FullscreenCircleApp, name), app)
+
+    return app
+
+
+def _make_mock_dialog():
+    """
+    Build a QPrintDialog mock that passes the `dialog.exec() != QPrintDialog.DialogCode.Accepted`
+    guard inside print_book / print_doc. The trick: both the mock instance's exec() return value
+    AND the mock class's DialogCode.Accepted must be the same object.
+    """
+    from unittest.mock import MagicMock
+    from PyQt6.QtPrintSupport import QPrintDialog as _Real
+    _accepted = _Real.DialogCode.Accepted          # real integer value
+
+    dialog_inst = MagicMock()
+    dialog_inst.exec.return_value = _accepted      # what dialog.exec() returns
+
+    dialog_cls = MagicMock(return_value=dialog_inst)
+    dialog_cls.DialogCode.Accepted = _accepted     # what QPrintDialog.DialogCode.Accepted is
+
+    return dialog_cls
+
+
+class TestPrint:
+
+    def test_print_book_excludes_0txt(self, tmp_path):
+        """print_book must not include 0.txt in the HTML output."""
+        from unittest.mock import patch, MagicMock
+        files = {
+            '0.txt':   '.\nShould be excluded.\n',
+            'ch1.txt': '.\nChapter one line.\n',
+            'ch2.txt': '.\nChapter two line.\n',
+        }
+        app = _make_print_app(tmp_path, book_files_content=files)
+        captured_html = []
+
+        class FakeDoc:
+            def setHtml(self_, html): captured_html.append(html)
+            def print_(self_, printer): pass
+
+        with patch('new_interface.QPrinter', return_value=MagicMock()), \
+             patch('new_interface.QPrintDialog', _make_mock_dialog()), \
+             patch('PyQt6.QtGui.QTextDocument', FakeDoc):
+            app.print_book()
+
+        assert captured_html, "print_book did not build any HTML"
+        html = captured_html[0]
+        assert 'Should be excluded' not in html
+        assert 'Chapter one line' in html
+        assert 'Chapter two line' in html
+
+    def test_print_book_respects_book_files_order(self, tmp_path):
+        """print_book renders chapters in book_files order."""
+        from unittest.mock import patch, MagicMock
+        files = {'b.txt': '.\nBeta.\n', 'a.txt': '.\nAlpha.\n'}
+        app = _make_print_app(tmp_path, book_files_content=files)
+        app.book_files = ['b.txt', 'a.txt']
+        captured_html = []
+
+        class FakeDoc:
+            def setHtml(self_, html): captured_html.append(html)
+            def print_(self_, printer): pass
+
+        with patch('new_interface.QPrinter', return_value=MagicMock()), \
+             patch('new_interface.QPrintDialog', _make_mock_dialog()), \
+             patch('PyQt6.QtGui.QTextDocument', FakeDoc):
+            app.print_book()
+
+        assert captured_html, "print_book did not build any HTML"
+        html = captured_html[0]
+        assert html.index('Beta') < html.index('Alpha')
+
+    def _run_print_doc(self, app):
+        """Run print_doc with full Qt mocking, return list of drawn text lines."""
+        from unittest.mock import patch, MagicMock
+        drawn = []
+
+        class FakePainter:
+            def __init__(self_, printer): pass
+            def setFont(self_, f): pass
+            def viewport(self_):
+                r = MagicMock()
+                r.width.return_value = 800
+                r.height.return_value = 1000
+                return r
+            def drawText(self_, x, y, w, h, flags, text): drawn.append(text)
+            def end(self_): pass
+
+        fake_fm = MagicMock()
+        fake_fm.height.return_value = 20
+
+        with patch('new_interface.QPrinter', return_value=MagicMock()), \
+             patch('new_interface.QPrintDialog', _make_mock_dialog()), \
+             patch('PyQt6.QtGui.QPainter', FakePainter), \
+             patch('PyQt6.QtGui.QFontMetrics', return_value=fake_fm), \
+             patch('PyQt6.QtGui.QFont', return_value=MagicMock()):
+            app.print_doc()
+
+        return drawn
+
+    def test_print_doc_uses_current_file_path(self, tmp_path):
+        """print_doc reads current_file_path, not hardcoded 0.txt."""
+        app = _make_print_app(tmp_path, active_content=".\nActive file line.\n")
+        (tmp_path / "0.txt").write_text(".\nWrong file.\n", encoding='utf-8')
+        app.void_dir = str(tmp_path)
+
+        drawn = self._run_print_doc(app)
+
+        assert 'Active file line.' in drawn
+        assert 'Wrong file.' not in drawn
+
+    def test_print_doc_excludes_dot_separators(self, tmp_path):
+        """print_doc must not send '.' separator lines to the printer."""
+        app = _make_print_app(tmp_path, active_content=".\nReal line.\n.\nAnother line.\n")
+
+        drawn = self._run_print_doc(app)
+
+        assert '.' not in drawn
+        assert 'Real line.' in drawn
+        assert 'Another line.' in drawn

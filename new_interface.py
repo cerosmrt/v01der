@@ -1124,7 +1124,8 @@ class FullscreenCircleApp(QMainWindow):
             return
         html_parts = ['<html><body style="color:black;background:white;'
                       'font-family:Consolas,monospace;">']
-        for i, fname in enumerate(self.book_files):
+        printable = [f for f in self.book_files if f != '0.txt']
+        for i, fname in enumerate(printable):
             fpath = os.path.join(self.book_dir, fname)
             title = os.path.splitext(fname)[0]
             try:
@@ -1195,10 +1196,10 @@ class FullscreenCircleApp(QMainWindow):
         if dialog.exec() != QPrintDialog.DialogCode.Accepted:
             return
 
-        doc_path = os.path.join(self.void_dir, '0.txt')
+        doc_path = self.current_file_path
         try:
             with open(doc_path, 'r', encoding='utf-8') as f:
-                lines = [l.strip() for l in f if l.strip()]
+                lines = [l.strip() for l in f if l.strip() and l.strip() != '.']
         except Exception as e:
             print(f"❌ Print error reading file: {e}")
             return
@@ -1226,7 +1227,7 @@ class FullscreenCircleApp(QMainWindow):
             y += line_height
 
         painter.end()
-        print(f"🖨️ Printed {len(lines)} lines from 0.txt")
+        print(f"🖨️ Printed {len(lines)} lines from {os.path.basename(doc_path)}")
 
     def open_screenshots_folder(self):
         """Ctrl+F12: Open the screenshots folder in the system file explorer."""
@@ -1552,9 +1553,11 @@ class FullscreenCircleApp(QMainWindow):
         if self._matches(key, mods, 'pick_dir'):
             self.change_void_directory(); event.accept(); return
 
-        # Print book (F3 only)
+        # Print
         if self._matches(key, mods, 'print_doc') and self.current_view == 2:
             self.print_book(); event.accept(); return
+        if self._matches(key, mods, 'print_doc') and self.current_view == 1:
+            self.print_doc(); event.accept(); return
 
         # Global: screenshot / open folder
         if self._matches(key, mods, 'screenshot'):
