@@ -436,12 +436,20 @@ class FullscreenCircleApp(QMainWindow):
             self._vault_show_editor()
 
     def auto_save_circular(self):
-        """Save doc ring state to active file."""
+        """Save doc ring state to active file (atomic write)."""
+        import tempfile
         doc_path = self.current_file_path
+        dir_path = os.path.dirname(doc_path) or '.'
         try:
-            with open(doc_path, 'w', encoding='utf-8') as f:
-                for line in self.line_ring.lines:
-                    f.write(line + '\n')
+            fd, tmp_path = tempfile.mkstemp(dir=dir_path, suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    for line in self.line_ring.lines:
+                        f.write(line + '\n')
+                os.replace(tmp_path, doc_path)
+            except Exception:
+                os.unlink(tmp_path)
+                raise
             print(f"💾 Saved to 0.txt (index={self.line_ring.index})")
         except Exception as e:
             print(f"❌ Save error: {e}")
