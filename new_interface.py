@@ -4,6 +4,7 @@ import sys
 import json
 import random
 import datetime
+import shutil
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QFileDialog
 from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 from PyQt6.QtGui import QFont, QCursor
@@ -33,7 +34,7 @@ DEFAULT_CONFIG = {
         "view_f3": "F3",
         "view_f4": "F4",
         "quit": "Escape",
-        "rebase": "Ctrl+9",
+        "rebase": "Ctrl+0",
         "reshuffle": "Ctrl+R",
         "opacity_up": "Ctrl+Up",
         "opacity_down": "Ctrl+Down",
@@ -106,6 +107,37 @@ def _save_config(config):
             json.dump(config, f, indent=2, ensure_ascii=False)
     except Exception as e:
         print(f"⚠️ Error saving config: {e}")
+
+
+def _zodiac_sign(month, day):
+    """Return the Spanish zodiac sign name for a given month/day."""
+    if (month == 12 and day >= 22) or (month == 1 and day <= 19):
+        return 'capricornio'
+    elif (month == 1 and day >= 20) or (month == 2 and day <= 18):
+        return 'acuario'
+    elif (month == 2 and day >= 19) or (month == 3 and day <= 20):
+        return 'piscis'
+    elif (month == 3 and day >= 21) or (month == 4 and day <= 19):
+        return 'aries'
+    elif (month == 4 and day >= 20) or (month == 5 and day <= 20):
+        return 'tauro'
+    elif (month == 5 and day >= 21) or (month == 6 and day <= 20):
+        return 'geminis'
+    elif (month == 6 and day >= 21) or (month == 7 and day <= 22):
+        return 'cancer'
+    elif (month == 7 and day >= 23) or (month == 8 and day <= 22):
+        return 'leo'
+    elif (month == 8 and day >= 23) or (month == 9 and day <= 22):
+        return 'virgo'
+    elif (month == 9 and day >= 23) or (month == 10 and day <= 22):
+        return 'libra'
+    elif (month == 10 and day >= 23) or (month == 11 and day <= 21):
+        return 'escorpio'
+    else:
+        return 'sagitario'
+
+
+BACKUP_ROOT = r'C:\Users\feder\Downloads\_voider_backups'
 
 
 class FullscreenCircleApp(QMainWindow):
@@ -211,6 +243,7 @@ class FullscreenCircleApp(QMainWindow):
         self.load_doc_lines()
         self.load_vault_lines()
         self._load_book_order()
+        self._backup_void_dir()
 
         # Void key connection
         self._print_void_mode_status()
@@ -247,6 +280,52 @@ class FullscreenCircleApp(QMainWindow):
         self.load_vault_lines()
         self.switch_to_view(self.current_view)
         print(f"📁 Void dir changed to: {new_dir}")
+
+    # ── Backup ───────────────────────────────────────────────────────────────
+
+    def _backup_void_dir(self):
+        """On startup, copy all .txt files from void_dir to a timestamped folder.
+        Per day: keeps 1 frozen (first backup of the day) + 10 rotating.
+        Never deletes backups from other days.
+        Folder name: YYYY-MM-DD_HHMM_zodiacsign."""
+        try:
+            now = datetime.datetime.now()
+            zodiac = _zodiac_sign(now.month, now.day)
+
+            # Manage today's backups: keep the first (frozen) + 10 rotating
+            os.makedirs(BACKUP_ROOT, exist_ok=True)
+            today_prefix = now.strftime('%Y-%m-%d')
+            todays = sorted(
+                [d for d in os.listdir(BACKUP_ROOT)
+                 if os.path.isdir(os.path.join(BACKUP_ROOT, d))
+                 and d.startswith(today_prefix)]
+            )  # sorted ascending = oldest first
+            if len(todays) >= 11:
+                # Keep index 0 (frozen first of day), delete oldest rotative (index 1)
+                to_delete = os.path.join(BACKUP_ROOT, todays[1])
+                shutil.rmtree(to_delete, ignore_errors=True)
+                print(f"🗑️  Rotativo eliminado: {todays[1]}")
+
+            folder_name = f"{now.strftime('%Y-%m-%d_%H%M')}_{zodiac}"
+            backup_dest = os.path.join(BACKUP_ROOT, folder_name)
+            os.makedirs(backup_dest, exist_ok=True)
+            count = 0
+            for root, dirs, files in os.walk(self.void_dir):
+                dirs[:] = [d for d in dirs if d != '_backups']
+                for fname in files:
+                    if not fname.lower().endswith('.txt'):
+                        continue
+                    src = os.path.join(root, fname)
+                    rel = os.path.relpath(root, self.void_dir)
+                    dst_dir = os.path.join(backup_dest, rel)
+                    os.makedirs(dst_dir, exist_ok=True)
+                    shutil.copy2(src, os.path.join(dst_dir, fname))
+                    count += 1
+
+            print(f"📦 Backup: {count} archivos → {folder_name}")
+
+        except Exception as e:
+            print(f"⚠️ Backup error: {e}")
 
     # ── Loaders ───────────────────────────────────────────────────────────────
 
@@ -408,10 +487,10 @@ class FullscreenCircleApp(QMainWindow):
             else:
                 self.book_view.ring = self.book_ring
                 self.book_view._offset = 0.0
-            # Sync cursor to active file
+            # Sync cursor to active file (ring layout: ['.', name0, '.', name1, ...])
             active_fname = os.path.basename(self.current_file_path)
             if active_fname in self.book_files:
-                self.book_ring.index = self.book_files.index(active_fname)
+                self.book_ring.index = self.book_files.index(active_fname) * 2 + 1
             self.stack.setCurrentWidget(self.book_view)
             self.entry.hide()
             self.book_view.update()
@@ -621,8 +700,17 @@ class FullscreenCircleApp(QMainWindow):
             print(f"⚠️ Error saving book order: {e}")
 
     def _rebuild_book_ring(self):
+        """Build book ring as: ['.', name1, '.', name2, ...] — dots are decorative."""
         display = [os.path.splitext(f)[0] for f in self.book_files]
-        self.book_ring = LineRing(display if display else ["(empty)"])
+        if not display:
+            self.book_ring = LineRing(['.', '(empty)'])
+        else:
+            lines = []
+            for name in display:
+                lines.append('.')
+                lines.append(name)
+            self.book_ring = LineRing(lines)
+            self.book_ring.index = 1  # start on first filename, not the dot
         if self.book_view:
             self.book_view.ring = self.book_ring
             self.book_view._offset = 0.0
@@ -894,10 +982,16 @@ class FullscreenCircleApp(QMainWindow):
         view.editor.setFocus()
         view.update()
 
+    def _book_file_idx(self):
+        """Return the book_files index for the current book_ring position."""
+        # Ring layout: ['.', name0, '.', name1, ...] — names are at odd indices
+        return self.book_ring.index // 2
+
     def _book_navigate(self, delta):
-        """Non-looping navigation through book files."""
-        new_idx = self.book_ring.index + delta
-        if new_idx < 0 or new_idx >= len(self.book_ring.lines):
+        """Non-looping navigation through book files, skipping dots."""
+        # Step by 2 to skip the dot before each filename
+        new_idx = self.book_ring.index + delta * 2
+        if new_idx < 1 or new_idx >= len(self.book_ring.lines):
             return  # stop at boundaries
         self.book_ring.index = new_idx
         self.book_view._offset = 0.0
@@ -907,13 +1001,20 @@ class FullscreenCircleApp(QMainWindow):
 
     def _book_confirm_edit(self):
         """Enter in F3: rename file if name changed, then activate it."""
-        idx = self.book_ring.index
-        if idx >= len(self.book_files):
+        # Never act on a dot separator position
+        if self.book_ring.current() == '.':
+            return
+        fidx = self._book_file_idx()
+        if fidx >= len(self.book_files):
             return
         new_name = self.book_view.editor.text().strip()
-        if not new_name:
+        # Reject empty names or names starting with '.' (would create '..txt' etc.)
+        if not new_name or new_name.startswith('.'):
+            print(f"⚠️ Nombre inválido: '{new_name}'")
+            # Restore original name in editor
+            self.book_view.editor.setText(self.book_ring.current())
             return
-        old_fname = self.book_files[idx]
+        old_fname = self.book_files[fidx]
         new_fname = new_name + '.txt'
         if new_fname != old_fname:
             old_path = os.path.join(self.book_dir, old_fname)
@@ -924,23 +1025,29 @@ class FullscreenCircleApp(QMainWindow):
                     self.current_file_path = new_path
                     self.config['active_file'] = new_path
                     _save_config(self.config)
-                self.book_files[idx] = new_fname
-                self.book_ring.lines[idx] = new_name
+                self.book_files[fidx] = new_fname
+                self.book_ring.lines[self.book_ring.index] = new_name
                 self._save_book_order()
                 print(f"📝 Renamed: {old_fname} → {new_fname}")
             except Exception as e:
                 print(f"⚠️ Rename failed: {e}")
                 return
-        self._set_active_file(os.path.join(self.book_dir, self.book_files[idx]))
+        self._set_active_file(os.path.join(self.book_dir, self.book_files[fidx]))
         self.switch_to_view(0)
 
     def _book_swap_up(self):
-        idx = self.book_ring.index
-        if idx <= 0:
+        """Alt+Up in F3: move current file one position earlier."""
+        fidx = self._book_file_idx()
+        if fidx <= 0:
             return
-        self.book_files[idx], self.book_files[idx-1] = self.book_files[idx-1], self.book_files[idx]
-        self.book_ring.lines[idx], self.book_ring.lines[idx-1] = self.book_ring.lines[idx-1], self.book_ring.lines[idx]
-        self.book_ring.index = idx - 1
+        # Swap in book_files
+        self.book_files[fidx], self.book_files[fidx-1] = self.book_files[fidx-1], self.book_files[fidx]
+        # Swap the name entries in the ring (odd positions: fidx*2+1)
+        ri = self.book_ring.index          # current name position
+        ri_prev = ri - 2                   # previous name position
+        self.book_ring.lines[ri], self.book_ring.lines[ri_prev] = \
+            self.book_ring.lines[ri_prev], self.book_ring.lines[ri]
+        self.book_ring.index = ri_prev
         self._save_book_order()
         self.book_view._offset = 0.0
         self.book_view.editor.setText(self.book_ring.current())
@@ -948,12 +1055,16 @@ class FullscreenCircleApp(QMainWindow):
         self.book_view.update()
 
     def _book_swap_down(self):
-        idx = self.book_ring.index
-        if idx >= len(self.book_files) - 1:
+        """Alt+Down in F3: move current file one position later."""
+        fidx = self._book_file_idx()
+        if fidx >= len(self.book_files) - 1:
             return
-        self.book_files[idx], self.book_files[idx+1] = self.book_files[idx+1], self.book_files[idx]
-        self.book_ring.lines[idx], self.book_ring.lines[idx+1] = self.book_ring.lines[idx+1], self.book_ring.lines[idx]
-        self.book_ring.index = idx + 1
+        self.book_files[fidx], self.book_files[fidx+1] = self.book_files[fidx+1], self.book_files[fidx]
+        ri = self.book_ring.index
+        ri_next = ri + 2
+        self.book_ring.lines[ri], self.book_ring.lines[ri_next] = \
+            self.book_ring.lines[ri_next], self.book_ring.lines[ri]
+        self.book_ring.index = ri_next
         self._save_book_order()
         self.book_view._offset = 0.0
         self.book_view.editor.setText(self.book_ring.current())
@@ -961,13 +1072,12 @@ class FullscreenCircleApp(QMainWindow):
         self.book_view.update()
 
     def _book_rebase(self):
-        """Ctrl+9 in F3: rotate book_files so selected file becomes first."""
-        idx = self.book_ring.index
-        if idx == 0:
+        """Ctrl+0 in F3: rotate book_files so selected file becomes first."""
+        fidx = self._book_file_idx()
+        if fidx == 0:
             return
-        self.book_files = self.book_files[idx:] + self.book_files[:idx]
-        self.book_ring.lines = [os.path.splitext(f)[0] for f in self.book_files]
-        self.book_ring.index = 0
+        self.book_files = self.book_files[fidx:] + self.book_files[:fidx]
+        self._rebuild_book_ring()
         self._save_book_order()
         self.book_view._offset = 0.0
         self.book_view.editor.setText(self.book_ring.current())
@@ -1322,29 +1432,39 @@ class FullscreenCircleApp(QMainWindow):
         self._move_paragraph(k, paragraphs, +1)
 
     def rebase_to_index_zero(self):
-        """Ctrl+9: Rotate current paragraph so current line becomes first after its dot."""
+        """Ctrl+0 in F2: make current line/paragraph the first in the ring."""
         if self.current_view != 1:
-            print("⚠️ Rebase only available in F2")
             return
         ring = self.line_ring
-        if ring.current() == '.':
-            return
         _, paragraphs = self._paragraphs_from_ring()
-        for k, para in enumerate(paragraphs):
-            dot_pos = self._dot_line_index(k, paragraphs)
-            next_dot = dot_pos + 1 + len(para)
-            if dot_pos < ring.index < next_dot:
-                offset = ring.index - dot_pos - 1
-                paragraphs[k] = para[offset:] + para[:offset]
-                self._rebuild_ring_from_paragraphs(paragraphs)
-                ring.index = self._dot_line_index(k, paragraphs) + 1
-                self.auto_save_circular()
-                self.circular_view._offset = 0.0
-                self.circular_view.editor.setText(ring.current())
-                self.circular_view.editor.setCursorPosition(0)
-                self.circular_view.update()
-                print(f"💾 Rebase paragraph | '{ring.current()[:50]}'")
+
+        if ring.current() == '.':
+            # Standing on a dot: rotate paragraphs so this one becomes first
+            dot_indices, _ = self._paragraphs_from_ring()
+            para_idx = dot_indices.index(ring.index) if ring.index in dot_indices else 0
+            if para_idx == 0:
                 return
+            paragraphs = paragraphs[para_idx:] + paragraphs[:para_idx]
+            self._rebuild_ring_from_paragraphs(paragraphs)
+            ring.index = 0
+        else:
+            # Standing on a text line: rotate within its paragraph
+            for k, para in enumerate(paragraphs):
+                dot_pos = self._dot_line_index(k, paragraphs)
+                next_dot = dot_pos + 1 + len(para)
+                if dot_pos < ring.index < next_dot:
+                    offset = ring.index - dot_pos - 1
+                    paragraphs[k] = para[offset:] + para[:offset]
+                    self._rebuild_ring_from_paragraphs(paragraphs)
+                    ring.index = self._dot_line_index(k, paragraphs) + 1
+                    break
+
+        self.auto_save_circular()
+        self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(ring.current())
+        self.circular_view.editor.setCursorPosition(0)
+        self.circular_view.update()
+        print(f"🔁 Rebase | '{ring.current()[:50]}'")
 
     # ── UI init ───────────────────────────────────────────────────────────────
 

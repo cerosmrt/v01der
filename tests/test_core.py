@@ -111,6 +111,7 @@ def make_ring_app(lines, tmp_file=None):
         '_get_focus_dot_idx',
         '_doc_join_prev', '_doc_split_line',
         '_load_book_order', '_save_book_order', '_rebuild_book_ring',
+        '_book_file_idx',
         '_book_navigate', '_book_swap_up', '_book_swap_down', '_book_rebase',
     ]
 
@@ -693,43 +694,45 @@ class TestBookOrder:
         assert saved == ['ch1.txt', 'ch2.txt', 'ch3.txt']
 
     def test_book_navigate_non_looping(self, tmp_path):
-        """_book_navigate stops at boundaries — does not wrap."""
+        """_book_navigate stops at boundaries — does not wrap, skips dots."""
         (tmp_path / "a.txt").write_text("", encoding='utf-8')
         (tmp_path / "b.txt").write_text("", encoding='utf-8')
         app = self._book_app(tmp_path)
         if not has(app, '_book_navigate'):
             pytest.skip("book browser not present in this commit")
         app.book_files = ['a.txt', 'b.txt']
-        app.book_ring = LineRing(['a', 'b'])
+        # New format: ['.', 'a', '.', 'b']
+        app.book_ring = LineRing(['.', 'a', '.', 'b'])
         app.book_view = _mock_circular_view()
-        app.book_ring.index = 0
-        app._book_navigate(-1)  # already at first — should not wrap
-        assert app.book_ring.index == 0
-
-        app.book_ring.index = 1
-        app._book_navigate(1)  # at last — should not wrap
+        app.book_ring.index = 1  # on 'a' (first file)
+        app._book_navigate(-1)  # already at first — should not move
         assert app.book_ring.index == 1
+
+        app.book_ring.index = 3  # on 'b' (last file)
+        app._book_navigate(1)  # at last — should not move
+        assert app.book_ring.index == 3
 
     def test_book_swap_up(self, tmp_path):
         app = self._book_app(tmp_path)
         if not has(app, '_book_swap_up'):
             pytest.skip("book browser not present in this commit")
         app.book_files = ['a.txt', 'b.txt', 'c.txt']
-        app.book_ring = LineRing(['a', 'b', 'c'])
+        # New ring format: ['.', 'a', '.', 'b', '.', 'c']
+        app.book_ring = LineRing(['.', 'a', '.', 'b', '.', 'c'])
         app.book_view = _mock_circular_view()
-        app.book_ring.index = 1  # on 'b'
+        app.book_ring.index = 3  # on 'b' (ring index 3)
         app._book_swap_up()
         assert app.book_files == ['b.txt', 'a.txt', 'c.txt']
-        assert app.book_ring.index == 0
+        assert app.book_ring.index == 1  # moved to 'b' at ring index 1
 
     def test_book_swap_up_at_first_noop(self, tmp_path):
         app = self._book_app(tmp_path)
         if not has(app, '_book_swap_up'):
             pytest.skip("book browser not present in this commit")
         app.book_files = ['a.txt', 'b.txt']
-        app.book_ring = LineRing(['a', 'b'])
+        app.book_ring = LineRing(['.', 'a', '.', 'b'])
         app.book_view = _mock_circular_view()
-        app.book_ring.index = 0
+        app.book_ring.index = 1  # on 'a' (first file)
         app._book_swap_up()
         assert app.book_files == ['a.txt', 'b.txt']  # unchanged
 
@@ -738,21 +741,21 @@ class TestBookOrder:
         if not has(app, '_book_swap_down'):
             pytest.skip("book browser not present in this commit")
         app.book_files = ['a.txt', 'b.txt', 'c.txt']
-        app.book_ring = LineRing(['a', 'b', 'c'])
+        app.book_ring = LineRing(['.', 'a', '.', 'b', '.', 'c'])
         app.book_view = _mock_circular_view()
-        app.book_ring.index = 1  # on 'b'
+        app.book_ring.index = 3  # on 'b'
         app._book_swap_down()
         assert app.book_files == ['a.txt', 'c.txt', 'b.txt']
-        assert app.book_ring.index == 2
+        assert app.book_ring.index == 5  # moved to 'b' at ring index 5
 
     def test_book_rebase(self, tmp_path):
         app = self._book_app(tmp_path)
         if not has(app, '_book_rebase'):
             pytest.skip("book browser not present in this commit")
         app.book_files = ['a.txt', 'b.txt', 'c.txt']
-        app.book_ring = LineRing(['a', 'b', 'c'])
+        app.book_ring = LineRing(['.', 'a', '.', 'b', '.', 'c'])
         app.book_view = _mock_circular_view()
-        app.book_ring.index = 2  # on 'c'
+        app.book_ring.index = 5  # on 'c'
         app._book_rebase()
         assert app.book_files == ['c.txt', 'a.txt', 'b.txt']
-        assert app.book_ring.index == 0
+        assert app.book_ring.index == 1  # lands on first filename after rebase
