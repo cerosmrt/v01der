@@ -759,3 +759,113 @@ class TestBookOrder:
         app._book_rebase()
         assert app.book_files == ['c.txt', 'a.txt', 'b.txt']
         assert app.book_ring.index == 1  # lands on first filename after rebase
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NEW: reformat_active_file  (Ctrl+Shift+F)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _make_reformat_app(tmp_path, content):
+    """Write content to a temp file and return an app bound to reformat_active_file."""
+    from new_interface import FullscreenCircleApp
+
+    p = tmp_path / "doc.txt"
+    p.write_text(content, encoding='utf-8')
+
+    app = make_ring_app(['.'], tmp_file=str(p))
+    app.current_file_path = str(p)
+
+    m = getattr(FullscreenCircleApp, 'reformat_active_file')
+    app.reformat_active_file = types.MethodType(m, app)
+
+    # stub out the post-write UI calls
+    app.load_doc_lines = MagicMock()
+    app._doc_show_editor = MagicMock()
+
+    return app, p
+
+
+class TestReformatActiveFile:
+
+    def test_raw_single_paragraph_split_at_sentence(self, tmp_path):
+        """Two sentences in one paragraph → two lines under a dot."""
+        content = "Hello world. Goodbye world.\n"
+        app, p = _make_reformat_app(tmp_path, content)
+        app.reformat_active_file()
+        lines = p.read_text(encoding='utf-8').splitlines()
+        assert lines[0] == '.'
+        assert 'Hello world.' in lines
+        assert 'Goodbye world.' in lines
+
+    def test_raw_blank_line_becomes_dot_separator(self, tmp_path):
+        """Two paragraphs separated by blank line → dot separator between them."""
+        content = "First sentence.\n\nSecond sentence.\n"
+        app, p = _make_reformat_app(tmp_path, content)
+        app.reformat_active_file()
+        lines = p.read_text(encoding='utf-8').splitlines()
+        assert lines.count('.') == 2  # leading dot + separator
+        dot_positions = [i for i, l in enumerate(lines) if l == '.']
+        assert dot_positions[0] == 0
+        # content between the two dots
+        between = lines[dot_positions[0]+1:dot_positions[1]]
+        assert between == ['First sentence.']
+
+    def test_already_voider_format_not_reprocessed(self, tmp_path):
+        """File already in Voider format → sentences not merged."""
+        content = ".\nFirst line.\nSecond line.\n"
+        app, p = _make_reformat_app(tmp_path, content)
+        app.reformat_active_file()
+        lines = p.read_text(encoding='utf-8').splitlines()
+        assert 'First line.' in lines
+        assert 'Second line.' in lines
+
+    def test_voider_format_consecutive_dot_lines_collapsed(self, tmp_path):
+        """Two consecutive '.' separator lines → collapsed to one."""
+        content = ".\nFirst line.\n.\n.\nSecond line.\n"
+        app, p = _make_reformat_app(tmp_path, content)
+        app.reformat_active_file()
+        lines = p.read_text(encoding='utf-8').splitlines()
+        # No two consecutive dots
+        for i in range(len(lines) - 1):
+            assert not (lines[i] == '.' and lines[i+1] == '.')
+
+    def test_voider_format_multi_dot_line_collapsed(self, tmp_path):
+        """A line like '..' or '...' → collapsed to single '.'."""
+        content = ".\nFirst line.\n..\nSecond line.\n"
+        app, p = _make_reformat_app(tmp_path, content)
+        app.reformat_active_file()
+        lines = p.read_text(encoding='utf-8').splitlines()
+        assert '..' not in lines
+        assert '.' in lines
+
+    def test_voider_format_triple_dot_line_collapsed(self, tmp_path):
+        """A line '...' → collapsed to single '.'."""
+        content = ".\nFirst line.\n...\nSecond line.\n"
+        app, p = _make_reformat_app(tmp_path, content)
+        app.reformat_active_file()
+        lines = p.read_text(encoding='utf-8').splitlines()
+        assert '...' not in lines
+
+    def test_voider_format_mixed_dot_mess_collapsed(self, tmp_path):
+        """Multiple junk dot lines in a row → single '.' separator."""
+        content = ".\nA.\n..\n.\n...\nB.\n"
+        app, p = _make_reformat_app(tmp_path, content)
+        app.reformat_active_file()
+        lines = p.read_text(encoding='utf-8').splitlines()
+        assert 'A.' in lines
+        assert 'B.' in lines
+        for i in range(len(lines) - 1):
+            assert not (lines[i] == '.' and lines[i+1] == '.')
+
+    def test_idempotent_clean_voider_file(self, tmp_path):
+        """Running reformat twice on a clean Voider file → no change."""
+        content = ".\nFirst line.\n.\nSecond line.\n"
+        app, p = _make_reformat_app(tmp_path, content)
+        app.reformat_active_file()
+        result1 = p.read_text(encoding='utf-8')
+        # second run: rebuild app on same file
+        app2, p2 = _make_reformat_app(tmp_path, result1)
+        app2.current_file_path = str(p)
+        app2.reformat_active_file()
+        result2 = p.read_text(encoding='utf-8')
+        assert result1 == result2

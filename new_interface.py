@@ -584,10 +584,33 @@ class FullscreenCircleApp(QMainWindow):
             print(f"❌ Reformat read error: {e}")
             return
 
-        # Treat '.' separator lines as paragraph breaks (makes reformat idempotent)
-        normalized = re.sub(r'(?m)^\.$', '', raw.strip())
+        # If already in Voider format (starts with '.'), only collapse consecutive dots
+        if raw.strip().startswith('.'):
+            lines = [l.rstrip() for l in raw.strip().splitlines()]
+            deduped = []
+            prev_dot = False
+            for line in lines:
+                is_dot = line == '.' or (line and all(c == '.' for c in line))
+                if is_dot:
+                    if not prev_dot:
+                        deduped.append('.')
+                    prev_dot = True
+                else:
+                    deduped.append(line)
+                    prev_dot = False
+            try:
+                with open(doc_path, 'w', encoding='utf-8') as f:
+                    for line in deduped:
+                        f.write(line + '\n')
+            except Exception as e:
+                print(f"❌ Reformat write error: {e}")
+                return
+            self.load_doc_lines()
+            self._doc_show_editor()
+            return
+
         # Split into paragraphs (one or more blank lines)
-        paragraphs = re.split(r'\n\s*\n+', normalized.strip())
+        paragraphs = re.split(r'\n\s*\n+', raw.strip())
 
         result_lines = []
         for para_idx, para in enumerate(paragraphs):
