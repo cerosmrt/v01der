@@ -44,17 +44,17 @@ def run():
                 env["PYTHONUTF8"] = "1"
                 proc = subprocess.Popen([PYTHON, MAIN], env=env)
             elif proc.poll() is not None:
-                # App exited on its own
-                print("⏹ App closed. Waiting for file change to restart (Ctrl+C to quit)...")
-                while not handler.restart_flag:
-                    time.sleep(0.2)
+                # App closed by user — stop the watcher
+                print("⏹ App closed. Stopping watcher.")
+                break
             time.sleep(0.3)
     except KeyboardInterrupt:
         print("\n🛑 Watcher stopped.")
         if proc and proc.poll() is None:
             proc.terminate()
+    finally:
         observer.stop()
-    observer.join()
+        observer.join()
 
 if __name__ == "__main__":
     run()

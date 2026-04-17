@@ -455,6 +455,8 @@ class FullscreenCircleApp(QMainWindow):
                 self.circular_view.editor.downPressed.connect(lambda: self._doc_navigate(1))
                 self.circular_view.editor.backspaceAtStart.connect(self._doc_join_prev)
                 self.circular_view.editor.splitAtCursor.connect(self._doc_split_line)
+                self.circular_view.editor.wordSwapLeft.connect(lambda: self._swap_words(-1))
+                self.circular_view.editor.wordSwapRight.connect(lambda: self._swap_words(1))
                 self.stack.addWidget(self.circular_view)
             else:
                 self.circular_view.ring = self.line_ring
@@ -1272,6 +1274,101 @@ class FullscreenCircleApp(QMainWindow):
         self.switch_to_file(self.txt_files[self.current_file_index])
 
     # ── Swap operations (F2 doc lines only) ──────────────────────────────────
+
+    def _swap_words(self, direction):
+        """Alt+Left/Right: swap word(s) at cursor or selection within the current line.
+        Trailing sentence-ending punctuation (.!?…) stays fixed at the end.
+        direction: -1=left, +1=right. Wraps circularly."""
+        editor = self.circular_view.editor
+        text = editor.text()
+        if not text.strip():
+            return
+
+        # Separate trailing sentence-ending punctuation
+        trailing = ''
+        core = text
+        if text and text[-1] in '.!?…':
+            j = len(text) - 1
+            while j >= 0 and text[j] in '.!?…':
+                j -= 1
+            candidate_core = text[:j + 1]
+            if candidate_core.strip():
+                core = candidate_core
+                trailing = text[j + 1:]
+
+        # Split into tokens (split on spaces, drop empties)
+        tokens = core.split()
+        if len(tokens) < 2:
+            return
+
+        # Build span positions for each token in `core`
+        spans = []
+        search_from = 0
+        for tok in tokens:
+            idx = core.find(tok, search_from)
+            spans.append((idx, idx + len(tok)))
+            search_from = idx + len(tok)
+
+        # Determine which token(s) form the "block" to move
+        if editor.hasSelectedText():
+            sel_start = editor.selectionStart()
+            sel_end = sel_start + len(editor.selectedText())
+            block_indices = [i for i, (s, e) in enumerate(spans)
+                             if s >= sel_start and e <= sel_end]
+            if not block_indices:
+                block_indices = [i for i, (s, e) in enumerate(spans)
+                                 if s < sel_end and e > sel_start]
+        else:
+            cur = editor.cursorPosition()
+            block_indices = [i for i, (s, e) in enumerate(spans) if s <= cur <= e]
+            if not block_indices:
+                # cursor between tokens: pick nearest
+                block_indices = [min(range(len(spans)),
+                                     key=lambda i: min(abs(cur - spans[i][0]),
+                                                       abs(cur - spans[i][1])))]
+
+        if not block_indices:
+            return
+
+        b0, b1 = block_indices[0], block_indices[-1]
+        n = len(tokens)
+        block = tokens[b0:b1 + 1]
+
+        if direction == -1:  # swap left
+            if b0 == 0:
+                # wrap: block moves to end
+                rest = tokens[b1 + 1:]
+                new_tokens = rest + block
+                new_b0 = len(rest)
+            else:
+                new_tokens = tokens[:b0 - 1] + block + [tokens[b0 - 1]] + tokens[b1 + 1:]
+                new_b0 = b0 - 1
+        else:  # swap right
+            if b1 == n - 1:
+                # wrap: block moves to start
+                rest = tokens[:b0]
+                new_tokens = block + rest
+                new_b0 = 0
+            else:
+                new_tokens = tokens[:b0] + [tokens[b1 + 1]] + block + tokens[b1 + 2:]
+                new_b0 = b0 + 1
+
+        new_text = ' '.join(new_tokens) + trailing
+        had_selection = editor.hasSelectedText()
+        editor.setText(new_text)
+
+        # Place cursor at start of moved block; restore selection if there was one
+        new_b1 = new_b0 + (b1 - b0)
+        sel_start = sum(len(new_tokens[i]) + 1 for i in range(new_b0))
+        sel_end = sum(len(new_tokens[i]) + 1 for i in range(new_b1 + 1)) - 1
+        if had_selection:
+            editor.setSelection(sel_start, sel_end - sel_start)
+        else:
+            editor.setCursorPosition(sel_start)
+
+        self.line_ring.lines[self.line_ring.index] = new_text
+        self.auto_save_circular()
+        self.circular_view.update()
 
     def _find_move_target(self, start, delta):
         """Find nearest non-dot index in direction delta (wrapping).
