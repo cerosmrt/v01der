@@ -1312,18 +1312,12 @@ class FullscreenCircleApp(QMainWindow):
         if self._para_focus:
             self._swap_line_in_focus(-1)
             return
-        cur = self.line_ring.index
-        prev, wrapped = self._find_move_target(cur, -1)
-        if prev is None:
-            return
         lines = self.line_ring.lines
-        if not wrapped:
-            lines[cur], lines[prev] = lines[prev], lines[cur]
-            self.line_ring.index = prev
-        else:
-            line = lines.pop(cur)
-            lines.append(line)
-            self.line_ring.index = len(lines) - 1
+        cur = self.line_ring.index
+        n = len(lines)
+        prev = (cur - 1) % n
+        lines[cur], lines[prev] = lines[prev], lines[cur]
+        self.line_ring.index = prev
         self.auto_save_circular()
         self.circular_view._offset = 0.0
         self.circular_view.editor.setText(self.line_ring.current())
@@ -1336,19 +1330,12 @@ class FullscreenCircleApp(QMainWindow):
         if self._para_focus:
             self._swap_line_in_focus(+1)
             return
-        cur = self.line_ring.index
-        nxt, wrapped = self._find_move_target(cur, +1)
-        if nxt is None:
-            return
         lines = self.line_ring.lines
-        if not wrapped:
-            lines[cur], lines[nxt] = lines[nxt], lines[cur]
-            self.line_ring.index = nxt
-        else:
-            line = lines.pop(cur)
-            insert_at = next((i for i, l in enumerate(lines) if l != '.'), 0)
-            lines.insert(insert_at, line)
-            self.line_ring.index = insert_at
+        cur = self.line_ring.index
+        n = len(lines)
+        nxt = (cur + 1) % n
+        lines[cur], lines[nxt] = lines[nxt], lines[cur]
+        self.line_ring.index = nxt
         self.auto_save_circular()
         self.circular_view._offset = 0.0
         self.circular_view.editor.setText(self.line_ring.current())

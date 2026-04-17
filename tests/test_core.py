@@ -298,24 +298,23 @@ class TestLineSwap:
         assert app.line_ring.lines == ['.', 'a', 'c', 'b']
         assert app.line_ring.index == 3
 
-    def test_swap_up_first_line_moves_to_end(self):
-        """First non-dot line swapped up: MOVE to end (not swap with last)."""
+    def test_swap_up_first_line_swaps_with_dot(self):
+        """First line swapped up: swaps with the leading dot (wraps circularly)."""
         app = make_ring_app(['.', 'a', 'b', 'c'])
         app.line_ring.index = 1  # on 'a'
         app.swap_line_up()
-        # 'a' should now be at the end
-        assert app.line_ring.lines[-1] == 'a'
-        assert app.line_ring.index == len(app.line_ring.lines) - 1
-        # Leading dot still at 0
-        assert app.line_ring.lines[0] == '.'
+        # 'a' swaps with '.' at index 0
+        assert app.line_ring.lines == ['a', '.', 'b', 'c']
+        assert app.line_ring.index == 0
 
-    def test_swap_down_last_line_moves_to_after_dot(self):
-        """Last line swapped down: MOVE to just after first dot."""
+    def test_swap_down_last_line_swaps_with_dot(self):
+        """Last line swapped down: swaps with the leading dot (wraps circularly)."""
         app = make_ring_app(['.', 'a', 'b', 'c'])
         app.line_ring.index = 3  # on 'c'
         app.swap_line_down()
-        # 'c' inserted right after dot (index 1)
-        assert app.line_ring.lines[1] == 'c'
+        # 'c' swaps with '.' at index 0 (circular wrap)
+        assert app.line_ring.lines == ['c', 'a', 'b', '.']
+        assert app.line_ring.index == 0
 
     def test_swap_does_not_move_dots(self):
         """Alt+Up on a dot triggers paragraph swap, not line swap.
@@ -330,17 +329,20 @@ class TestLineSwap:
         app.swap_line_up()  # should not raise
 
     def test_two_lines_swap_up(self):
-        """Only two real lines: swap sends first to end."""
+        """First real line swapped up: swaps with the leading dot."""
         app = make_ring_app(['.', 'x', 'y'])
         app.line_ring.index = 1  # on 'x'
         app.swap_line_up()
-        assert app.line_ring.lines[-1] == 'x'
+        assert app.line_ring.lines == ['x', '.', 'y']
+        assert app.line_ring.index == 0
 
     def test_two_lines_swap_down(self):
+        """Last real line swapped down: swaps with the leading dot (circular wrap)."""
         app = make_ring_app(['.', 'x', 'y'])
         app.line_ring.index = 2  # on 'y'
         app.swap_line_down()
-        assert app.line_ring.lines[1] == 'y'
+        assert app.line_ring.lines == ['y', 'x', '.']
+        assert app.line_ring.index == 0
 
 
 # ─────────────────────────────────────────────────────────────────────────────
