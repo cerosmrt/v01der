@@ -458,6 +458,7 @@ class FullscreenCircleApp(QMainWindow):
                 self.circular_view.editor.wordSwapLeft.connect(lambda: self._swap_words(-1))
                 self.circular_view.editor.wordSwapRight.connect(lambda: self._swap_words(1))
                 self.circular_view.editor.deleteLineToZero.connect(self._delete_line_to_zero)
+                self.circular_view.editor.deleteAtEnd.connect(self._doc_join_next)
                 self.stack.addWidget(self.circular_view)
             else:
                 self.circular_view.ring = self.line_ring
@@ -850,6 +851,36 @@ class FullscreenCircleApp(QMainWindow):
                 i if i < cur else i - 1
                 for i in self._para_focus_content
                 if i != cur
+            ]
+            if self.circular_view:
+                dot_idx = self._get_focus_dot_idx()
+                self.circular_view.focus_indices = set(self._para_focus_content) | {dot_idx}
+        self.auto_save_circular()
+        self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(ring.current())
+        self.circular_view.editor.setCursorPosition(join_pos)
+        self.circular_view.editor.setReadOnly(False)
+        self.circular_view.update()
+
+    def _doc_join_next(self):
+        """Delete at line end: join current line with next (blocked by dots)."""
+        ring = self.line_ring
+        cur = ring.index
+        n = len(ring.lines)
+        if n < 2:
+            return
+        nxt = (cur + 1) % n
+        if ring.lines[nxt] == '.':
+            return  # never join across a paragraph boundary
+        join_pos = len(ring.lines[cur])
+        ring.lines[cur] = ring.lines[cur] + ring.lines[nxt]
+        ring.lines.pop(nxt)
+        # Adjust para_focus indices
+        if self._para_focus:
+            self._para_focus_content = [
+                i if i < nxt else i - 1
+                for i in self._para_focus_content
+                if i != nxt
             ]
             if self.circular_view:
                 dot_idx = self._get_focus_dot_idx()
