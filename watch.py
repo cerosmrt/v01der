@@ -40,7 +40,9 @@ def run():
                     except subprocess.TimeoutExpired:
                         proc.kill()
                 print("▶ Starting voider.py...")
-                proc = subprocess.Popen([PYTHON, MAIN])
+                env = os.environ.copy()
+                env["PYTHONUTF8"] = "1"
+                proc = subprocess.Popen([PYTHON, MAIN], env=env)
             elif proc.poll() is not None:
                 # App exited on its own
                 print("⏹ App closed. Waiting for file change to restart (Ctrl+C to quit)...")
