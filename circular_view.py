@@ -237,6 +237,7 @@ class CustomLineEdit(QLineEdit):
     splitAtCursor = pyqtSignal(int)
     wordSwapLeft = pyqtSignal()
     wordSwapRight = pyqtSignal()
+    deleteLineToZero = pyqtSignal()
 
     def keyPressEvent(self, event):
         key = event.key()
@@ -255,6 +256,12 @@ class CustomLineEdit(QLineEdit):
             event.accept()
         elif key == Qt.Key.Key_Down and mods == Qt.KeyboardModifier.NoModifier:
             self.downPressed.emit()
+            event.accept()
+        elif key == Qt.Key.Key_Delete and ctrl and self.cursorPosition() == 0:
+            self.deleteLineToZero.emit()
+            event.accept()
+        elif key == Qt.Key.Key_Backspace and ctrl and self.cursorPosition() == len(self.text()):
+            self.deleteLineToZero.emit()
             event.accept()
         elif key == Qt.Key.Key_Left and mods == Qt.KeyboardModifier.AltModifier:
             self.wordSwapLeft.emit()

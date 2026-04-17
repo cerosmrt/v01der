@@ -457,6 +457,7 @@ class FullscreenCircleApp(QMainWindow):
                 self.circular_view.editor.splitAtCursor.connect(self._doc_split_line)
                 self.circular_view.editor.wordSwapLeft.connect(lambda: self._swap_words(-1))
                 self.circular_view.editor.wordSwapRight.connect(lambda: self._swap_words(1))
+                self.circular_view.editor.deleteLineToZero.connect(self._delete_line_to_zero)
                 self.stack.addWidget(self.circular_view)
             else:
                 self.circular_view.ring = self.line_ring
@@ -1370,6 +1371,36 @@ class FullscreenCircleApp(QMainWindow):
         self.auto_save_circular()
         self.circular_view.update()
 
+    def _delete_line_to_zero(self):
+        """Ctrl+Delete / Ctrl+Backspace in F2: remove current line and append to 0.txt."""
+        if os.path.basename(self.current_file_path).lower() == '0.txt':
+            return
+        lines = self.line_ring.lines
+        n = len(lines)
+        cur = self.line_ring.index
+        if n <= 1:
+            return
+        line = lines[cur]
+        new_lines = [l for i, l in enumerate(lines) if i != cur]
+        new_index = min(cur, len(new_lines) - 1)
+
+        zero_path = os.path.join(self.book_dir, '0.txt')
+        try:
+            os.makedirs(self.book_dir, exist_ok=True)
+            with open(zero_path, 'a', encoding='utf-8') as f:
+                f.write(line + '\n')
+        except Exception as e:
+            print(f"❌ Delete to 0.txt error: {e}")
+            return
+
+        self.line_ring.lines = new_lines
+        self.line_ring.index = new_index
+        self.auto_save_circular()
+        self.circular_view._offset = 0.0
+        self.circular_view.editor.setText(self.line_ring.current())
+        self.circular_view.editor.setCursorPosition(0)
+        self.circular_view.update()
+
     def _find_move_target(self, start, delta):
         """Find nearest non-dot index in direction delta (wrapping).
         Returns (index, wrapped) where wrapped=True means the boundary was crossed."""
@@ -1731,6 +1762,13 @@ class FullscreenCircleApp(QMainWindow):
         elif self._matches(key, mods, 'reformat_file'):
             self.reformat_active_file()
             event.accept()
+        elif (mods & Qt.KeyboardModifier.ControlModifier) and key in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            editor = self.circular_view.editor
+            at_start = editor.cursorPosition() == 0
+            at_end = editor.cursorPosition() == len(editor.text())
+            if (key == Qt.Key.Key_Delete and at_start) or (key == Qt.Key.Key_Backspace and at_end):
+                self._delete_line_to_zero()
+                event.accept()
         elif key == Qt.Key.Key_Escape:
             if self._para_focus:
                 self._exit_para_focus()
