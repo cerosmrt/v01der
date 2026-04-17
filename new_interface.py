@@ -473,6 +473,7 @@ class FullscreenCircleApp(QMainWindow):
             self._load_book_order()
             if not self.book_view:
                 self.book_view = CircularView(self.book_ring, self)
+                self.book_view.zero_marker = True
                 self.book_view.setFont(self._app_font)
                 self.book_view.editor.returnPressed.disconnect()
                 self.book_view.editor.returnPressed.connect(self._book_confirm_edit)
@@ -796,6 +797,31 @@ class FullscreenCircleApp(QMainWindow):
         print(f"📁 Book dir: {path}")
         self.switch_to_view(self.current_view)
 
+    def _apply_editor_style(self, editor, red=False):
+        """Apply red or white stylesheet to a circular view editor."""
+        if red:
+            editor.setStyleSheet("""
+                QLineEdit {
+                    background-color: black;
+                    color: rgb(255, 40, 40);
+                    border: none;
+                    qproperty-alignment: AlignCenter;
+                    selection-background-color: rgb(255, 40, 40);
+                    selection-color: black;
+                }
+            """)
+        else:
+            editor.setStyleSheet("""
+                QLineEdit {
+                    background-color: black;
+                    color: white;
+                    border: none;
+                    qproperty-alignment: AlignCenter;
+                    selection-background-color: white;
+                    selection-color: black;
+                }
+            """)
+
     def _doc_show_editor(self):
         """Show F2 editor with current doc line, cursor at start."""
         if not self.line_ring.lines:
@@ -812,6 +838,8 @@ class FullscreenCircleApp(QMainWindow):
         view.editor.setText(self.line_ring.current())
         view.editor.setCursorPosition(0)
         view.editor.setReadOnly(self.line_ring.current() == '.')
+        is_zero_dot = view.zero_marker and self.line_ring.index == 0
+        self._apply_editor_style(view.editor, red=is_zero_dot)
         view.editor.show()
         view.editor.setFocus()
         view.update()
@@ -829,6 +857,8 @@ class FullscreenCircleApp(QMainWindow):
         self.circular_view.editor.setText(self.line_ring.current())
         self.circular_view.editor.setCursorPosition(0)
         self.circular_view.editor.setReadOnly(self.line_ring.current() == '.')
+        is_zero_dot = self.circular_view.zero_marker and self.line_ring.index == 0
+        self._apply_editor_style(self.circular_view.editor, red=is_zero_dot)
         self.circular_view.update()
 
     def _doc_join_prev(self):
@@ -1039,11 +1069,18 @@ class FullscreenCircleApp(QMainWindow):
         return self.book_ring.index // 2
 
     def _book_navigate(self, delta):
-        """Non-looping navigation through book files, skipping dots.
+        """Circular navigation through book files, skipping dots.
         Activates the highlighted file immediately (no Enter needed)."""
+        n = len(self.book_ring.lines)
+        if n < 2:
+            return
         new_idx = self.book_ring.index + delta * 2
-        if new_idx < 1 or new_idx >= len(self.book_ring.lines):
-            return  # stop at boundaries
+        # Wrap circularly (ring layout: ['.', name0, '.', name1, ...] — names at odd indices)
+        last_name_idx = n - 1 if n % 2 == 0 else n - 2
+        if new_idx < 1:
+            new_idx = last_name_idx
+        elif new_idx > last_name_idx:
+            new_idx = 1
         self.book_ring.index = new_idx
         self.book_view._offset = 0.0
         self.book_view.editor.setText(self.book_ring.current())

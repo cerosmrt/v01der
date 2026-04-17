@@ -206,9 +206,13 @@ class CircularView(QWidget):
             abs_idx = (self.ring.index + i) % n
             is_zero_dot = self.zero_marker and text == '.' and abs_idx == 0
 
+            # Zero dot stays visible at full opacity regardless of focus/highlight state
+            if is_zero_dot:
+                alpha = max(alpha, base_alpha)
+
             painter.setOpacity(alpha)
             if is_zero_dot:
-                painter.setPen(QColor(180, 0, 0))
+                painter.setPen(QColor(255, 40, 40))
             painter.drawText(0, draw_y, w, text_rect.height(),
                             Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
                             text)

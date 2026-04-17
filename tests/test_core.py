@@ -91,6 +91,7 @@ def make_ring_app(lines, tmp_file=None):
     app.book_files = []
     app.book_ring = LineRing()
     app.book_view = None
+    app.config = {}
 
     # Always bind these (present in a51bf13)
     core_methods = [
@@ -110,8 +111,9 @@ def make_ring_app(lines, tmp_file=None):
     optional_methods = [
         '_get_focus_dot_idx',
         '_doc_join_prev', '_doc_split_line',
+        '_apply_editor_style',
         '_load_book_order', '_save_book_order', '_rebuild_book_ring',
-        '_book_file_idx',
+        '_book_file_idx', '_set_active_file',
         '_book_navigate', '_book_swap_up', '_book_swap_down', '_book_rebase',
     ]
 
@@ -695,8 +697,8 @@ class TestBookOrder:
         saved = json.loads((tmp_path / "_book_order.json").read_text(encoding='utf-8'))
         assert saved == ['ch1.txt', 'ch2.txt', 'ch3.txt']
 
-    def test_book_navigate_non_looping(self, tmp_path):
-        """_book_navigate stops at boundaries — does not wrap, skips dots."""
+    def test_book_navigate_circular(self, tmp_path):
+        """_book_navigate wraps circularly at boundaries, skipping dots."""
         (tmp_path / "a.txt").write_text("", encoding='utf-8')
         (tmp_path / "b.txt").write_text("", encoding='utf-8')
         app = self._book_app(tmp_path)
@@ -707,12 +709,12 @@ class TestBookOrder:
         app.book_ring = LineRing(['.', 'a', '.', 'b'])
         app.book_view = _mock_circular_view()
         app.book_ring.index = 1  # on 'a' (first file)
-        app._book_navigate(-1)  # already at first — should not move
-        assert app.book_ring.index == 1
+        app._book_navigate(-1)  # at first — wraps to last
+        assert app.book_ring.index == 3
 
         app.book_ring.index = 3  # on 'b' (last file)
-        app._book_navigate(1)  # at last — should not move
-        assert app.book_ring.index == 3
+        app._book_navigate(1)  # at last — wraps to first
+        assert app.book_ring.index == 1
 
     def test_book_swap_up(self, tmp_path):
         app = self._book_app(tmp_path)
