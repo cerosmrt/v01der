@@ -8,7 +8,7 @@ import shutil
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QFileDialog
 from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
 from PyQt6.QtGui import QFont, QCursor, QShortcut, QKeySequence
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, qInstallMessageHandler, QtMsgType
 
 from files import setup_file_handling, void_line
 from controls import setup_controls
@@ -17,6 +17,14 @@ from circular_view import CircularView
 from widgets import CustomLineEdit
 from views import NormalView
 
+
+def _qt_msg_handler(msg_type, context, message):
+    if 'Painter not active' in message or 'Paint device returned engine == 0' in message:
+        return
+    import sys
+    print(message, file=sys.stderr)
+
+qInstallMessageHandler(_qt_msg_handler)
 
 CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
 
@@ -1259,7 +1267,7 @@ class FullscreenCircleApp(QMainWindow):
         html_parts.append('</body></html>')
         doc = QTextDocument()
         doc.setHtml(''.join(html_parts))
-        doc.print_(printer)
+        doc.print(printer)
 
     def _vault_navigate(self, delta):
         """Move vault ring and update inline editor text."""

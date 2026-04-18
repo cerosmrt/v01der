@@ -17,7 +17,6 @@ class NormalView(QWidget):
             return
         if self.width() == 0 or self.height() == 0:
             return
-
         painter = QPainter(self)
         if not painter.isActive():
             return

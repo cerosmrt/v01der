@@ -1015,7 +1015,7 @@ class TestPrint:
 
         class FakeDoc:
             def setHtml(self_, html): captured_html.append(html)
-            def print_(self_, printer): pass
+            def print(self_, printer): pass
 
         with patch('new_interface.QPrinter', return_value=MagicMock()), \
              patch('new_interface.QPrintDialog', _make_mock_dialog()), \
@@ -1038,7 +1038,7 @@ class TestPrint:
 
         class FakeDoc:
             def setHtml(self_, html): captured_html.append(html)
-            def print_(self_, printer): pass
+            def print(self_, printer): pass
 
         with patch('new_interface.QPrinter', return_value=MagicMock()), \
              patch('new_interface.QPrintDialog', _make_mock_dialog()), \
