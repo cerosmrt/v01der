@@ -1078,12 +1078,13 @@ class TestPrint:
         assert 'Active file line.' in html
         assert 'Wrong file.' not in html
 
-    def test_print_doc_excludes_dot_separators(self, tmp_path):
-        """print_doc must not include '.' separator lines in the HTML output."""
+    def test_print_doc_dot_becomes_spacer(self, tmp_path):
+        """print_doc must render '.' separators as blank spacer lines, not as text."""
         app = _make_print_app(tmp_path, active_content=".\nReal line.\n.\nAnother line.\n")
 
         html = self._run_print_doc(app)
 
-        assert '>.<' not in html  # dot as its own paragraph tag
+        assert '>.<' not in html       # dot must not appear as visible text
+        assert '&nbsp;' in html        # spacer paragraph must be present
         assert 'Real line.' in html
         assert 'Another line.' in html

@@ -1281,7 +1281,7 @@ class FullscreenCircleApp(QMainWindow):
             title = os.path.splitext(fname)[0]
             try:
                 with open(fpath, 'r', encoding='utf-8') as f:
-                    lines = [l.strip() for l in f if l.strip() and l.strip() != '.']
+                    lines = [l.strip() for l in f if l.strip()]
             except Exception:
                 lines = []
             if i > 0:
@@ -1290,9 +1290,12 @@ class FullscreenCircleApp(QMainWindow):
                 f'<h2 style="text-align:center;margin:3em 0 2em;">{title}</h2>'
             )
             for line in lines:
-                html_parts.append(
-                    f'<p style="text-align:center;margin:0.4em 0;">{line}</p>'
-                )
+                if line == '.':
+                    html_parts.append('<p style="margin:0.8em 0;">&nbsp;</p>')
+                else:
+                    html_parts.append(
+                        f'<p style="text-align:center;margin:0.4em 0;">{line}</p>'
+                    )
         html_parts.append('</body></html>')
         doc = QTextDocument()
         doc.setHtml(''.join(html_parts))
@@ -1351,7 +1354,7 @@ class FullscreenCircleApp(QMainWindow):
             return
         try:
             with open(doc_path, 'r', encoding='utf-8') as f:
-                lines = [l.strip() for l in f if l.strip() and l.strip() != '.']
+                lines = [l.strip() for l in f if l.strip()]
         except Exception as e:
             print(f"❌ Print error reading file: {e}")
             return
@@ -1361,7 +1364,10 @@ class FullscreenCircleApp(QMainWindow):
                       'font-family:Consolas,monospace;">']
         html_parts.append(f'<h2 style="text-align:center;margin:3em 0 2em;">{title}</h2>')
         for line in lines:
-            html_parts.append(f'<p style="text-align:center;margin:0.4em 0;">{line}</p>')
+            if line == '.':
+                html_parts.append('<p style="margin:0.8em 0;">&nbsp;</p>')
+            else:
+                html_parts.append(f'<p style="text-align:center;margin:0.4em 0;">{line}</p>')
         html_parts.append('</body></html>')
 
         doc = QTextDocument()
