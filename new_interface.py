@@ -417,6 +417,14 @@ class FullscreenCircleApp(QMainWindow):
     # ── Views ─────────────────────────────────────────────────────────────────
 
     def switch_to_view(self, view_index):
+        # F3 → F2: activate the highlighted file (same as pressing Enter)
+        if self.current_view == 2 and view_index == 1:
+            if not self._book_try_rename():
+                return
+            if self.book_ring.current() != '.':
+                fidx = self._book_file_idx()
+                if fidx < len(self.book_files):
+                    self._set_active_file(os.path.join(self.book_dir, self.book_files[fidx]))
         # Save last line when leaving F2
         if self.current_view == 1:
             self._save_last_line()
@@ -1106,7 +1114,7 @@ class FullscreenCircleApp(QMainWindow):
 
     def _book_navigate(self, delta):
         """Circular navigation through book files, skipping dots.
-        Auto-saves title edits before moving. Activates file immediately."""
+        Auto-saves title edits before moving. Enter activates the file."""
         self._book_try_rename()
         n = len(self.book_ring.lines)
         if n < 2:
@@ -1123,10 +1131,6 @@ class FullscreenCircleApp(QMainWindow):
         self.book_view.editor.setText(self.book_ring.current())
         self.book_view.editor.setCursorPosition(0)
         self.book_view.update()
-        # Activate immediately — no Enter required
-        fidx = self._book_file_idx()
-        if fidx < len(self.book_files):
-            self._set_active_file(os.path.join(self.book_dir, self.book_files[fidx]))
 
     def _book_try_rename(self):
         """Rename the current book file if the editor text has changed.

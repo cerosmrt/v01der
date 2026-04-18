@@ -766,6 +766,67 @@ class TestBookOrder:
         assert app.book_files == ['c.txt', 'a.txt', 'b.txt']
         assert app.book_ring.index == 1  # lands on first filename after rebase
 
+    def test_book_navigate_does_not_activate_file(self, tmp_path):
+        """_book_navigate must NOT call _set_active_file — activation only on Enter/F2."""
+        (tmp_path / "a.txt").write_text("", encoding='utf-8')
+        (tmp_path / "b.txt").write_text("", encoding='utf-8')
+        app = self._book_app(tmp_path)
+        if not has(app, '_book_navigate'):
+            pytest.skip("book browser not present in this commit")
+        app.book_files = ['a.txt', 'b.txt']
+        app.book_ring = LineRing(['.', 'a', '.', 'b'])
+        app.book_view = _mock_circular_view()
+        app.book_ring.index = 1  # on 'a'
+
+        activate_calls = []
+        app._set_active_file = lambda path: activate_calls.append(path)
+
+        app._book_navigate(1)
+        app._book_navigate(-1)
+        assert activate_calls == [], "_book_navigate must not activate the file"
+
+    def test_switch_to_f2_from_f3_activates_file(self, tmp_path):
+        """switch_to_view(1) from F3 (current_view=2) must activate the highlighted file."""
+        from new_interface import FullscreenCircleApp
+        (tmp_path / "a.txt").write_text(".\nhello\n", encoding='utf-8')
+        (tmp_path / "b.txt").write_text(".\nworld\n", encoding='utf-8')
+        app = self._book_app(tmp_path)
+
+        if not hasattr(FullscreenCircleApp, 'switch_to_view'):
+            pytest.skip("switch_to_view not present in this commit")
+
+        app.book_files = ['a.txt', 'b.txt']
+        app.book_ring = LineRing(['.', 'a', '.', 'b'])
+        app.book_ring.index = 3  # on 'b'
+        app.book_view = _mock_circular_view()
+        app.current_view = 2  # currently in F3
+
+        # Mock Qt-dependent attributes so switch_to_view can run
+        app.stack = MagicMock()
+        app.entry = MagicMock()
+        app._doc_show_editor = MagicMock()
+        app._save_last_line = MagicMock()
+
+        activate_calls = []
+        app._set_active_file = lambda path: activate_calls.append(path)
+
+        # Bind switch_to_view and its dependencies
+        for name in ('switch_to_view', '_book_file_idx', '_book_try_rename',
+                     '_rebuild_book_ring', '_load_book_order'):
+            if hasattr(FullscreenCircleApp, name) and not hasattr(app, name):
+                setattr(app, name, types.MethodType(
+                    getattr(FullscreenCircleApp, name), app))
+        # Ensure already-bound ones are updated too
+        for name in ('switch_to_view', '_book_file_idx', '_book_try_rename'):
+            if hasattr(FullscreenCircleApp, name):
+                setattr(app, name, types.MethodType(
+                    getattr(FullscreenCircleApp, name), app))
+
+        app.switch_to_view(1)
+
+        assert len(activate_calls) == 1
+        assert activate_calls[0].endswith('b.txt')
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # NEW: reformat_active_file  (Ctrl+Shift+F)
