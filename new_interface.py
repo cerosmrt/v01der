@@ -1237,12 +1237,41 @@ class FullscreenCircleApp(QMainWindow):
         self.book_view.update()
         print(f"📚 Rebase: '{self.book_files[0]}' is now first")
 
+    def _get_printer(self, default_pdf_path):
+        """Show Print / Save as PDF choice. Returns a ready QPrinter or None."""
+        from PyQt6.QtWidgets import QMessageBox, QFileDialog
+        msg = QMessageBox(self)
+        msg.setWindowTitle(' ')
+        msg.setText('Print or save as PDF?')
+        btn_print = msg.addButton('Print', QMessageBox.ButtonRole.AcceptRole)
+        btn_pdf   = msg.addButton('Save as PDF', QMessageBox.ButtonRole.AcceptRole)
+        msg.addButton('Cancel', QMessageBox.ButtonRole.RejectRole)
+        msg.exec()
+        clicked = msg.clickedButton()
+        if clicked == btn_print:
+            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+            dialog = QPrintDialog(printer, self)
+            if dialog.exec() != QPrintDialog.DialogCode.Accepted:
+                return None
+            return printer
+        elif clicked == btn_pdf:
+            path, _ = QFileDialog.getSaveFileName(
+                self, 'Save as PDF', default_pdf_path, 'PDF (*.pdf)')
+            if not path:
+                return None
+            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+            printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+            printer.setOutputFileName(path)
+            return printer
+        return None
+
     def print_book(self):
-        """Ctrl+P in F3: print all chapters in order via system dialog."""
+        """Ctrl+P in F3: print or export all chapters."""
         from PyQt6.QtGui import QTextDocument
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        dialog = QPrintDialog(printer, self)
-        if dialog.exec() != QPrintDialog.DialogCode.Accepted:
+        book_name = os.path.basename(os.path.normpath(self.book_dir))
+        default_path = os.path.join(self.book_dir, book_name + '.pdf')
+        printer = self._get_printer(default_path)
+        if printer is None:
             return
         html_parts = ['<html><body style="color:black;background:white;'
                       'font-family:Consolas,monospace;">']
@@ -1312,14 +1341,14 @@ class FullscreenCircleApp(QMainWindow):
         print(f"📸 Screenshot: {path}")
 
     def print_doc(self):
-        """Ctrl+P in F2: print active file centered, via QTextDocument (same as F3)."""
+        """Ctrl+P in F2: print or export active file."""
         from PyQt6.QtGui import QTextDocument
-        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-        dialog = QPrintDialog(printer, self)
-        if dialog.exec() != QPrintDialog.DialogCode.Accepted:
-            return
-
         doc_path = self.current_file_path
+        file_name = os.path.splitext(os.path.basename(doc_path))[0]
+        default_path = os.path.join(os.path.dirname(doc_path), file_name + '.pdf')
+        printer = self._get_printer(default_path)
+        if printer is None:
+            return
         try:
             with open(doc_path, 'r', encoding='utf-8') as f:
                 lines = [l.strip() for l in f if l.strip() and l.strip() != '.']

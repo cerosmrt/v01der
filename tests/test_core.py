@@ -973,7 +973,7 @@ def _make_print_app(tmp_path, book_files_content=None, active_content=None):
     app._app_font = MagicMock()
     app._app_font.family.return_value = 'Consolas'
 
-    for name in ('print_book', 'print_doc'):
+    for name in ('print_book', 'print_doc', '_get_printer'):
         if hasattr(FullscreenCircleApp, name):
             app.__dict__[name] = types.MethodType(
                 getattr(FullscreenCircleApp, name), app)
@@ -1002,6 +1002,11 @@ def _make_mock_dialog():
 
 class TestPrint:
 
+    def _fake_printer(self, app):
+        """Patch _get_printer on the app instance to return a MagicMock printer."""
+        from unittest.mock import patch, MagicMock
+        return patch.object(app, '_get_printer', return_value=MagicMock())
+
     def test_print_book_excludes_0txt(self, tmp_path):
         """print_book must not include 0.txt in the HTML output."""
         from unittest.mock import patch, MagicMock
@@ -1017,8 +1022,7 @@ class TestPrint:
             def setHtml(self_, html): captured_html.append(html)
             def print(self_, printer): pass
 
-        with patch('new_interface.QPrinter', return_value=MagicMock()), \
-             patch('new_interface.QPrintDialog', _make_mock_dialog()), \
+        with self._fake_printer(app), \
              patch('PyQt6.QtGui.QTextDocument', FakeDoc):
             app.print_book()
 
@@ -1040,8 +1044,7 @@ class TestPrint:
             def setHtml(self_, html): captured_html.append(html)
             def print(self_, printer): pass
 
-        with patch('new_interface.QPrinter', return_value=MagicMock()), \
-             patch('new_interface.QPrintDialog', _make_mock_dialog()), \
+        with self._fake_printer(app), \
              patch('PyQt6.QtGui.QTextDocument', FakeDoc):
             app.print_book()
 
@@ -1058,8 +1061,7 @@ class TestPrint:
             def setHtml(self_, html): captured_html.append(html)
             def print(self_, printer): pass
 
-        with patch('new_interface.QPrinter', return_value=MagicMock()), \
-             patch('new_interface.QPrintDialog', _make_mock_dialog()), \
+        with self._fake_printer(app), \
              patch('PyQt6.QtGui.QTextDocument', FakeDoc):
             app.print_doc()
 
