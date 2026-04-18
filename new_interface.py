@@ -1070,7 +1070,8 @@ class FullscreenCircleApp(QMainWindow):
 
     def _book_navigate(self, delta):
         """Circular navigation through book files, skipping dots.
-        Activates the highlighted file immediately (no Enter needed)."""
+        Auto-saves title edits before moving. Activates file immediately."""
+        self._book_try_rename()
         n = len(self.book_ring.lines)
         if n < 2:
             return

@@ -92,6 +92,7 @@ def make_ring_app(lines, tmp_file=None):
     app.book_ring = LineRing()
     app.book_view = None
     app.config = {}
+    app._set_active_file = lambda path: None  # no-op: avoid writing config.json during tests
 
     # Always bind these (present in a51bf13)
     core_methods = [
@@ -113,7 +114,7 @@ def make_ring_app(lines, tmp_file=None):
         '_doc_join_prev', '_doc_split_line',
         '_apply_editor_style',
         '_load_book_order', '_save_book_order', '_rebuild_book_ring',
-        '_book_file_idx', '_set_active_file',
+        '_book_file_idx', '_book_try_rename',
         '_book_navigate', '_book_swap_up', '_book_swap_down', '_book_rebase',
     ]
 
