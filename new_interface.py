@@ -7,7 +7,7 @@ import datetime
 import shutil
 from PyQt6.QtWidgets import QApplication, QMainWindow, QStackedWidget, QFileDialog
 from PyQt6.QtPrintSupport import QPrinter, QPrintDialog
-from PyQt6.QtGui import QFont, QCursor
+from PyQt6.QtGui import QFont, QCursor, QShortcut, QKeySequence
 from PyQt6.QtCore import Qt
 
 from files import setup_file_handling, void_line
@@ -36,8 +36,8 @@ DEFAULT_CONFIG = {
         "quit": "Escape",
         "rebase": "Ctrl+0",
         "reshuffle": "Ctrl+R",
-        "opacity_up": "Ctrl+Up",
-        "opacity_down": "Ctrl+Down",
+        "opacity_up": "Ctrl+Plus",
+        "opacity_down": "Ctrl+Minus",
         "file_prev": "Alt+Up",
         "file_next": "Alt+Down",
         "swap_up": "Alt+Up",
@@ -67,6 +67,7 @@ _KEY_MAP = {
     '0': Qt.Key.Key_0, '9': Qt.Key.Key_9, 'R': Qt.Key.Key_R, 'P': Qt.Key.Key_P,
     'F': Qt.Key.Key_F, 'B': Qt.Key.Key_B,
     '.': Qt.Key.Key_Period, '*': Qt.Key.Key_Asterisk,
+    'Plus': Qt.Key.Key_Plus, 'Minus': Qt.Key.Key_Minus,
 }
 
 _MOD_MAP = {
@@ -181,6 +182,7 @@ class FullscreenCircleApp(QMainWindow):
         self.book_ring = LineRing()
 
         self.opacity = 1.0
+        self._setup_opacity_shortcuts()
         self.txt_files = []
         self.current_file_index = 0
         self.current_view = 0  # 0=F1, 1=F2, 2=F3(book), 3=F4(vault)
@@ -1742,6 +1744,33 @@ class FullscreenCircleApp(QMainWindow):
         super().resizeEvent(event)
         self._reposition_entry()
 
+    def leaveEvent(self, event):
+        """Restore focus to the active editor when the mouse leaves the window."""
+        super().leaveEvent(event)
+        self._refocus_active_editor()
+
+    def _setup_opacity_shortcuts(self):
+        up = QShortcut(QKeySequence("Ctrl++"), self)
+        up.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        up.activated.connect(lambda: self._change_opacity(0.1))
+        down = QShortcut(QKeySequence("Ctrl+-"), self)
+        down.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        down.activated.connect(lambda: self._change_opacity(-0.1))
+
+    def _change_opacity(self, delta):
+        self.opacity = max(0.0, min(1.0, self.opacity + delta))
+        self.setWindowOpacity(self.opacity)
+
+    def _refocus_active_editor(self):
+        if self.current_view == 0:
+            self.entry.setFocus()
+        elif self.current_view == 1 and self.circular_view:
+            self.circular_view.editor.setFocus()
+        elif self.current_view == 2 and self.book_view:
+            self.book_view.editor.setFocus()
+        elif self.current_view == 3 and self.vault_view:
+            self.vault_view.editor.setFocus()
+
     # ── Key routing ───────────────────────────────────────────────────────────
 
     def keyPressEvent(self, event):
@@ -1789,15 +1818,6 @@ class FullscreenCircleApp(QMainWindow):
         if self._matches(key, mods, 'open_screenshots'):
             self.open_screenshots_folder(); event.accept(); return
 
-        # Global: opacity
-        if self._matches(key, mods, 'opacity_up'):
-            self.opacity = min(1.0, self.opacity + 0.1)
-            self.setWindowOpacity(self.opacity)
-            event.accept(); return
-        if self._matches(key, mods, 'opacity_down'):
-            self.opacity = max(0.0, self.opacity - 0.1)
-            self.setWindowOpacity(self.opacity)
-            event.accept(); return
         if self._matches(key, mods, 'backup'):
             self._backup_vault()
             event.accept(); return

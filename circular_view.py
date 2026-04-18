@@ -286,7 +286,19 @@ class CustomLineEdit(QLineEdit):
         elif key == Qt.Key.Key_Backspace and self.cursorPosition() == 0 and not self.hasSelectedText():
             self.backspaceAtStart.emit()
             event.accept()
-        elif ctrl and key in (Qt.Key.Key_Up, Qt.Key.Key_Down, Qt.Key.Key_F12):
+        elif key == Qt.Key.Key_Up and ctrl and not (mods & Qt.KeyboardModifier.ShiftModifier):
+            self.home(False)
+            event.accept()
+        elif key == Qt.Key.Key_Down and ctrl and not (mods & Qt.KeyboardModifier.ShiftModifier):
+            self.end(False)
+            event.accept()
+        elif key == Qt.Key.Key_Up and ctrl and (mods & Qt.KeyboardModifier.ShiftModifier):
+            self.home(True)
+            event.accept()
+        elif key == Qt.Key.Key_Down and ctrl and (mods & Qt.KeyboardModifier.ShiftModifier):
+            self.end(True)
+            event.accept()
+        elif ctrl and key == Qt.Key.Key_F12:
             event.ignore()
         else:
             super().keyPressEvent(event)
