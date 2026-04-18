@@ -336,9 +336,8 @@ class FullscreenCircleApp(QMainWindow):
         # are always separated when wrapping around the ring.
         if lines and lines[0] != '.':
             lines.insert(0, '.')
-        old_index = self.line_ring.index if self.line_ring.lines else 0
         self.line_ring = LineRing(lines or ["."])
-        self.line_ring.index = min(old_index, len(self.line_ring.lines) - 1)
+        self._restore_last_line()
         if self.circular_view:
             self.circular_view.ring = self.line_ring
             self.circular_view._offset = 0.0
@@ -418,6 +417,9 @@ class FullscreenCircleApp(QMainWindow):
     # ── Views ─────────────────────────────────────────────────────────────────
 
     def switch_to_view(self, view_index):
+        # Save last line when leaving F2
+        if self.current_view == 1:
+            self._save_last_line()
         # Cancel staged vault line if user navigates away without voiding
         if view_index == 3:
             self._pending_vault_remove = False
@@ -713,6 +715,39 @@ class FullscreenCircleApp(QMainWindow):
         self._rebuild_book_ring()
         print(f"📚 Book: {len(self.book_files)} files in {os.path.basename(self.book_dir)}")
 
+    def _last_lines_path(self):
+        return os.path.join(self.book_dir, '_last_lines.json')
+
+    def _save_last_line(self):
+        """Save current line index for the active file into _last_lines.json."""
+        fname = os.path.basename(self.current_file_path)
+        path = self._last_lines_path()
+        try:
+            try:
+                with open(path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+            except Exception:
+                data = {}
+            data[fname] = self.line_ring.index
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            print(f"⚠️ Error saving last line: {e}")
+
+    def _restore_last_line(self):
+        """Restore last known line index for the active file from _last_lines.json."""
+        fname = os.path.basename(self.current_file_path)
+        path = self._last_lines_path()
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            idx = data.get(fname)
+            if idx is not None:
+                n = len(self.line_ring.lines)
+                self.line_ring.index = max(0, min(idx, n - 1))
+        except Exception:
+            pass  # no saved state yet, stay at 0
+
     def _save_book_order(self):
         order_path = os.path.join(self.book_dir, '_book_order.json')
         try:
@@ -846,6 +881,7 @@ class FullscreenCircleApp(QMainWindow):
 
     def _doc_navigate(self, delta):
         """Move doc ring and update F2 editor text."""
+        self._save_last_line()
         if self._para_focus and self._para_focus_content:
             content = self._para_focus_content
             cur = self.line_ring.index

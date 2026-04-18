@@ -113,6 +113,7 @@ def make_ring_app(lines, tmp_file=None):
         '_get_focus_dot_idx',
         '_doc_join_prev', '_doc_split_line',
         '_apply_editor_style',
+        '_last_lines_path', '_save_last_line', '_restore_last_line',
         '_load_book_order', '_save_book_order', '_rebuild_book_ring',
         '_book_file_idx', '_book_try_rename',
         '_book_navigate', '_book_swap_up', '_book_swap_down', '_book_rebase',
