@@ -973,7 +973,9 @@ def _make_print_app(tmp_path, book_files_content=None, active_content=None):
     app._app_font = MagicMock()
     app._app_font.family.return_value = 'Consolas'
 
-    for name in ('print_book', 'print_doc', '_get_printer'):
+    for name in ('print_book', 'print_doc', 'export_book', 'export_doc',
+                 '_build_doc_html', '_render_doc', '_send_to_printer',
+                 '_printer_from_dialog', '_printer_from_save_dialog'):
         if hasattr(FullscreenCircleApp, name):
             app.__dict__[name] = types.MethodType(
                 getattr(FullscreenCircleApp, name), app)
@@ -1003,9 +1005,14 @@ def _make_mock_dialog():
 class TestPrint:
 
     def _fake_printer(self, app):
-        """Patch _get_printer on the app instance to return a MagicMock printer."""
+        """Patch printer helpers on the app instance to return a MagicMock printer."""
         from unittest.mock import patch, MagicMock
-        return patch.object(app, '_get_printer', return_value=MagicMock())
+        mock = MagicMock()
+        from contextlib import ExitStack
+        stack = ExitStack()
+        stack.enter_context(patch.object(app, '_printer_from_dialog', return_value=mock))
+        stack.enter_context(patch.object(app, '_printer_from_save_dialog', return_value=mock))
+        return stack
 
     def test_print_book_excludes_0txt(self, tmp_path):
         """print_book must not include 0.txt in the HTML output."""

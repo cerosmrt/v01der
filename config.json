@@ -1,7 +1,7 @@
 {
   "void_dir": "C:/I",
   "book_dir": "C:\\I\\Spanish\\26-4_Aries",
-  "active_file": "C:\\I\\Spanish\\26-4_Aries\\Ritos.txt",
+  "active_file": "C:\\I\\Spanish\\26-4_Aries\\Dios.txt",
   "void_key": "enter",
   "font_family": "Consolas",
   "font_size": 11,
@@ -28,6 +28,7 @@
     "screenshot": "F12",
     "open_screenshots": "Ctrl+F12",
     "print_doc": "Ctrl+P",
+    "export_doc": "Ctrl+S",
     "reformat_file": "Ctrl+Shift+F",
     "backup": "Ctrl+B"
   }

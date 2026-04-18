@@ -58,6 +58,7 @@ DEFAULT_CONFIG = {
         "screenshot": "F12",
         "open_screenshots": "Ctrl+F12",
         "print_doc": "Ctrl+P",
+        "export_doc": "Ctrl+S",
         "reformat_file": "Ctrl+Shift+F",
         "backup": "Ctrl+B"
     }
@@ -76,6 +77,7 @@ _KEY_MAP = {
     'F': Qt.Key.Key_F, 'B': Qt.Key.Key_B,
     '.': Qt.Key.Key_Period, '*': Qt.Key.Key_Asterisk,
     'Plus': Qt.Key.Key_Plus, 'Minus': Qt.Key.Key_Minus,
+    'S': Qt.Key.Key_S,
 }
 
 _MOD_MAP = {
@@ -1237,45 +1239,52 @@ class FullscreenCircleApp(QMainWindow):
         self.book_view.update()
         print(f"📚 Rebase: '{self.book_files[0]}' is now first")
 
-    def _get_printer(self, default_pdf_path):
-        """Show Print / Save as PDF choice. Returns a ready QPrinter or None."""
-        from PyQt6.QtWidgets import QMessageBox, QFileDialog
-        msg = QMessageBox(self)
-        msg.setWindowTitle(' ')
-        msg.setText('Print or save as PDF?')
-        btn_print = msg.addButton('Print', QMessageBox.ButtonRole.AcceptRole)
-        btn_pdf   = msg.addButton('Save as PDF', QMessageBox.ButtonRole.AcceptRole)
-        msg.addButton('Cancel', QMessageBox.ButtonRole.RejectRole)
-        msg.exec()
-        clicked = msg.clickedButton()
-        if clicked == btn_print:
-            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-            dialog = QPrintDialog(printer, self)
-            if dialog.exec() != QPrintDialog.DialogCode.Accepted:
-                return None
-            return printer
-        elif clicked == btn_pdf:
-            path, _ = QFileDialog.getSaveFileName(
-                self, 'Save as PDF', default_pdf_path, 'PDF (*.pdf)')
-            if not path:
-                return None
-            printer = QPrinter(QPrinter.PrinterMode.HighResolution)
-            printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
-            printer.setOutputFileName(path)
-            return printer
-        return None
+    def _build_doc_html(self, lines, title):
+        """Build centered HTML from a list of lines (dots become spacers)."""
+        parts = ['<html><body style="color:black;background:white;'
+                 'font-family:Consolas,monospace;">']
+        parts.append(f'<h2 style="text-align:center;margin:3em 0 2em;">{title}</h2>')
+        for line in lines:
+            if line == '.':
+                parts.append('<p style="margin:0.8em 0;">&nbsp;</p>')
+            else:
+                parts.append(f'<p style="text-align:center;margin:0.4em 0;">{line}</p>')
+        parts.append('</body></html>')
+        return ''.join(parts)
+
+    def _printer_from_dialog(self):
+        """Show QPrintDialog and return ready printer, or None if cancelled."""
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        dialog = QPrintDialog(printer, self)
+        if dialog.exec() != QPrintDialog.DialogCode.Accepted:
+            return None
+        return printer
+
+    def _printer_from_save_dialog(self, default_path):
+        """Show save-as dialog and return a PDF printer, or None if cancelled."""
+        from PyQt6.QtWidgets import QFileDialog
+        path, _ = QFileDialog.getSaveFileName(
+            self, 'Save as', default_path, 'PDF (*.pdf)')
+        if not path:
+            return None
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(path)
+        return printer
+
+    def _send_to_printer(self, printer, html):
+        from PyQt6.QtGui import QTextDocument
+        doc = QTextDocument()
+        doc.setHtml(html)
+        doc.print(printer)
 
     def print_book(self):
-        """Ctrl+P in F3: print or export all chapters."""
-        from PyQt6.QtGui import QTextDocument
-        book_name = os.path.basename(os.path.normpath(self.book_dir))
-        default_path = os.path.join(self.book_dir, book_name + '.pdf')
-        printer = self._get_printer(default_path)
+        """Ctrl+P in F3: send all chapters to physical printer."""
+        printer = self._printer_from_dialog()
         if printer is None:
             return
-        html_parts = ['<html><body style="color:black;background:white;'
-                      'font-family:Consolas,monospace;">']
         printable = [f for f in self.book_files if f != '0.txt']
+        html_parts = []
         for i, fname in enumerate(printable):
             fpath = os.path.join(self.book_dir, fname)
             title = os.path.splitext(fname)[0]
@@ -1286,20 +1295,36 @@ class FullscreenCircleApp(QMainWindow):
                 lines = []
             if i > 0:
                 html_parts.append('<div style="page-break-before:always;"></div>')
-            html_parts.append(
-                f'<h2 style="text-align:center;margin:3em 0 2em;">{title}</h2>'
-            )
-            for line in lines:
-                if line == '.':
-                    html_parts.append('<p style="margin:0.8em 0;">&nbsp;</p>')
-                else:
-                    html_parts.append(
-                        f'<p style="text-align:center;margin:0.4em 0;">{line}</p>'
-                    )
-        html_parts.append('</body></html>')
-        doc = QTextDocument()
-        doc.setHtml(''.join(html_parts))
-        doc.print(printer)
+            html_parts.append(self._build_doc_html(lines, title))
+        full_html = ('<html><body style="color:black;background:white;'
+                     'font-family:Consolas,monospace;">'
+                     + ''.join(html_parts) + '</body></html>')
+        self._send_to_printer(printer, full_html)
+
+    def export_book(self):
+        """Ctrl+S in F3: save all chapters as PDF, pre-named after the book folder."""
+        book_name = os.path.basename(os.path.normpath(self.book_dir))
+        default_path = os.path.join(self.book_dir, book_name + '.pdf')
+        printer = self._printer_from_save_dialog(default_path)
+        if printer is None:
+            return
+        printable = [f for f in self.book_files if f != '0.txt']
+        html_parts = []
+        for i, fname in enumerate(printable):
+            fpath = os.path.join(self.book_dir, fname)
+            title = os.path.splitext(fname)[0]
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    lines = [l.strip() for l in f if l.strip()]
+            except Exception:
+                lines = []
+            if i > 0:
+                html_parts.append('<div style="page-break-before:always;"></div>')
+            html_parts.append(self._build_doc_html(lines, title))
+        full_html = ('<html><body style="color:black;background:white;'
+                     'font-family:Consolas,monospace;">'
+                     + ''.join(html_parts) + '</body></html>')
+        self._send_to_printer(printer, full_html)
 
     def _vault_navigate(self, delta):
         """Move vault ring and update inline editor text."""
@@ -1344,36 +1369,33 @@ class FullscreenCircleApp(QMainWindow):
         print(f"📸 Screenshot: {path}")
 
     def print_doc(self):
-        """Ctrl+P in F2: print or export active file."""
-        from PyQt6.QtGui import QTextDocument
+        """Ctrl+P in F2: send active file to physical printer."""
+        printer = self._printer_from_dialog()
+        if printer is None:
+            return
+        self._render_doc(printer)
+
+    def export_doc(self):
+        """Ctrl+S in F2: save active file as PDF, pre-named after the file."""
         doc_path = self.current_file_path
         file_name = os.path.splitext(os.path.basename(doc_path))[0]
         default_path = os.path.join(os.path.dirname(doc_path), file_name + '.pdf')
-        printer = self._get_printer(default_path)
+        printer = self._printer_from_save_dialog(default_path)
         if printer is None:
             return
+        self._render_doc(printer)
+
+    def _render_doc(self, printer):
+        """Build HTML from the active file and send to printer."""
+        doc_path = self.current_file_path
         try:
             with open(doc_path, 'r', encoding='utf-8') as f:
                 lines = [l.strip() for l in f if l.strip()]
         except Exception as e:
             print(f"❌ Print error reading file: {e}")
             return
-
         title = os.path.splitext(os.path.basename(doc_path))[0]
-        html_parts = ['<html><body style="color:black;background:white;'
-                      'font-family:Consolas,monospace;">']
-        html_parts.append(f'<h2 style="text-align:center;margin:3em 0 2em;">{title}</h2>')
-        for line in lines:
-            if line == '.':
-                html_parts.append('<p style="margin:0.8em 0;">&nbsp;</p>')
-            else:
-                html_parts.append(f'<p style="text-align:center;margin:0.4em 0;">{line}</p>')
-        html_parts.append('</body></html>')
-
-        doc = QTextDocument()
-        doc.setHtml(''.join(html_parts))
-        doc.print(printer)
-        print(f"🖨️ Printed {len(lines)} lines from {os.path.basename(doc_path)}")
+        self._send_to_printer(printer, self._build_doc_html(lines, title))
 
     def open_screenshots_folder(self):
         """Ctrl+F12: Open the screenshots folder in the system file explorer."""
@@ -1838,11 +1860,15 @@ class FullscreenCircleApp(QMainWindow):
         if self._matches(key, mods, 'pick_dir'):
             self.change_void_directory(); event.accept(); return
 
-        # Print
+        # Print (Ctrl+P) and Export/Save as (Ctrl+S)
         if self._matches(key, mods, 'print_doc') and self.current_view == 2:
             self.print_book(); event.accept(); return
         if self._matches(key, mods, 'print_doc') and self.current_view == 1:
             self.print_doc(); event.accept(); return
+        if self._matches(key, mods, 'export_doc') and self.current_view == 2:
+            self.export_book(); event.accept(); return
+        if self._matches(key, mods, 'export_doc') and self.current_view == 1:
+            self.export_doc(); event.accept(); return
 
         # Global: screenshot / open folder
         if self._matches(key, mods, 'screenshot'):
