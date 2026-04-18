@@ -1385,6 +1385,28 @@ class FullscreenCircleApp(QMainWindow):
             return
         self._render_doc(printer)
 
+    def print_vault(self):
+        """Ctrl+P in F4: send all vault lines to physical printer."""
+        printer = self._printer_from_dialog()
+        if printer is None:
+            return
+        self._render_vault(printer)
+
+    def export_vault(self):
+        """Ctrl+S in F4: save all vault lines as PDF, pre-named after the vault folder."""
+        vault_name = os.path.basename(os.path.normpath(self.void_dir))
+        default_path = os.path.join(self.void_dir, vault_name + '.pdf')
+        printer = self._printer_from_save_dialog(default_path)
+        if printer is None:
+            return
+        self._render_vault(printer)
+
+    def _render_vault(self, printer):
+        """Build HTML from current vault ring lines and send to printer."""
+        lines = [l for l in self.vault_ring.lines if l and l != '.']
+        vault_name = os.path.basename(os.path.normpath(self.void_dir))
+        self._send_to_printer(printer, self._build_doc_html(lines, vault_name))
+
     def _render_doc(self, printer):
         """Build HTML from the active file and send to printer."""
         doc_path = self.current_file_path
@@ -1865,10 +1887,14 @@ class FullscreenCircleApp(QMainWindow):
             self.print_book(); event.accept(); return
         if self._matches(key, mods, 'print_doc') and self.current_view == 1:
             self.print_doc(); event.accept(); return
+        if self._matches(key, mods, 'print_doc') and self.current_view == 3:
+            self.print_vault(); event.accept(); return
         if self._matches(key, mods, 'export_doc') and self.current_view == 2:
             self.export_book(); event.accept(); return
         if self._matches(key, mods, 'export_doc') and self.current_view == 1:
             self.export_doc(); event.accept(); return
+        if self._matches(key, mods, 'export_doc') and self.current_view == 3:
+            self.export_vault(); event.accept(); return
 
         # Global: screenshot / open folder
         if self._matches(key, mods, 'screenshot'):
