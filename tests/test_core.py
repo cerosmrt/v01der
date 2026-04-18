@@ -1050,32 +1050,20 @@ class TestPrint:
         assert html.index('Beta') < html.index('Alpha')
 
     def _run_print_doc(self, app):
-        """Run print_doc with full Qt mocking, return list of drawn text lines."""
+        """Run print_doc with full Qt mocking, return captured HTML string."""
         from unittest.mock import patch, MagicMock
-        drawn = []
+        captured_html = []
 
-        class FakePainter:
-            def __init__(self_, printer): pass
-            def setFont(self_, f): pass
-            def viewport(self_):
-                r = MagicMock()
-                r.width.return_value = 800
-                r.height.return_value = 1000
-                return r
-            def drawText(self_, x, y, w, h, flags, text): drawn.append(text)
-            def end(self_): pass
-
-        fake_fm = MagicMock()
-        fake_fm.height.return_value = 20
+        class FakeDoc:
+            def setHtml(self_, html): captured_html.append(html)
+            def print(self_, printer): pass
 
         with patch('new_interface.QPrinter', return_value=MagicMock()), \
              patch('new_interface.QPrintDialog', _make_mock_dialog()), \
-             patch('PyQt6.QtGui.QPainter', FakePainter), \
-             patch('PyQt6.QtGui.QFontMetrics', return_value=fake_fm), \
-             patch('PyQt6.QtGui.QFont', return_value=MagicMock()):
+             patch('PyQt6.QtGui.QTextDocument', FakeDoc):
             app.print_doc()
 
-        return drawn
+        return captured_html[0] if captured_html else ''
 
     def test_print_doc_uses_current_file_path(self, tmp_path):
         """print_doc reads current_file_path, not hardcoded 0.txt."""
@@ -1083,17 +1071,17 @@ class TestPrint:
         (tmp_path / "0.txt").write_text(".\nWrong file.\n", encoding='utf-8')
         app.void_dir = str(tmp_path)
 
-        drawn = self._run_print_doc(app)
+        html = self._run_print_doc(app)
 
-        assert 'Active file line.' in drawn
-        assert 'Wrong file.' not in drawn
+        assert 'Active file line.' in html
+        assert 'Wrong file.' not in html
 
     def test_print_doc_excludes_dot_separators(self, tmp_path):
-        """print_doc must not send '.' separator lines to the printer."""
+        """print_doc must not include '.' separator lines in the HTML output."""
         app = _make_print_app(tmp_path, active_content=".\nReal line.\n.\nAnother line.\n")
 
-        drawn = self._run_print_doc(app)
+        html = self._run_print_doc(app)
 
-        assert '.' not in drawn
-        assert 'Real line.' in drawn
-        assert 'Another line.' in drawn
+        assert '>.<' not in html  # dot as its own paragraph tag
+        assert 'Real line.' in html
+        assert 'Another line.' in html

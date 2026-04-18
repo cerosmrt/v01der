@@ -1312,8 +1312,9 @@ class FullscreenCircleApp(QMainWindow):
         print(f"📸 Screenshot: {path}")
 
     def print_doc(self):
-        """Ctrl+P: Print all lines from 0.txt, centered on the page."""
-        printer = QPrinter()
+        """Ctrl+P in F2: print active file centered, via QTextDocument (same as F3)."""
+        from PyQt6.QtGui import QTextDocument
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         dialog = QPrintDialog(printer, self)
         if dialog.exec() != QPrintDialog.DialogCode.Accepted:
             return
@@ -1326,29 +1327,17 @@ class FullscreenCircleApp(QMainWindow):
             print(f"❌ Print error reading file: {e}")
             return
 
-        from PyQt6.QtGui import QPainter, QFontMetrics
-        painter = QPainter(printer)
-        font = QFont(self._app_font.family(), 14)
-        painter.setFont(font)
-        fm = QFontMetrics(font)
-        page_w = painter.viewport().width()
-        page_h = painter.viewport().height()
-        line_height = fm.height() + 4
-
-        if page_h <= 0 or line_height <= 0:
-            painter.end()
-            print("❌ Print error: invalid page dimensions")
-            return
-
-        y = line_height
+        title = os.path.splitext(os.path.basename(doc_path))[0]
+        html_parts = ['<html><body style="color:black;background:white;'
+                      'font-family:Consolas,monospace;">']
+        html_parts.append(f'<h2 style="text-align:center;margin:3em 0 2em;">{title}</h2>')
         for line in lines:
-            if y + line_height > page_h:
-                printer.newPage()
-                y = line_height
-            painter.drawText(0, y, page_w, line_height, Qt.AlignmentFlag.AlignCenter, line)
-            y += line_height
+            html_parts.append(f'<p style="text-align:center;margin:0.4em 0;">{line}</p>')
+        html_parts.append('</body></html>')
 
-        painter.end()
+        doc = QTextDocument()
+        doc.setHtml(''.join(html_parts))
+        doc.print(printer)
         print(f"🖨️ Printed {len(lines)} lines from {os.path.basename(doc_path)}")
 
     def open_screenshots_folder(self):
