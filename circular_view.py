@@ -167,6 +167,9 @@ class CircularView(QWidget):
         w = self.width()
         h = self.height()
         center_y = h // 2
+        text_area_w = min(w - 100, 800)
+        margin = (w - text_area_w) // 2
+        painter.setClipRect(margin, 0, text_area_w, h)
 
         # When on a dot, find which offsets belong to its paragraph
         on_dot = self.ring.current() == '.'
@@ -182,11 +185,12 @@ class CircularView(QWidget):
 
         max_lines = self.height() // (2 * self.line_height) + 2 if self.height() > 0 else 20
 
+        line_h = fm.height()
+        line_ascent = fm.ascent()
         for i in range(-max_lines, max_lines + 1):
             y_pos = center_y + (i + self._offset) * self.line_height
             text = self.ring.get(i)
-            text_rect = fm.boundingRect(0, 0, w, 1000, Qt.AlignmentFlag.AlignCenter, text)
-            draw_y = int(y_pos - text_rect.height() / 2)
+            draw_y = int(y_pos - line_h / 2)
             distance_from_center = abs(y_pos - center_y)
             base_alpha = self.calculate_alpha(distance_from_center)
 
@@ -194,7 +198,9 @@ class CircularView(QWidget):
                 abs_idx = (self.ring.index + i) % len(self.ring.lines)
                 alpha = base_alpha if abs_idx in self.focus_indices else base_alpha * 0.1
             elif self.edit_mode:
-                if on_dot and i in highlight_offsets:
+                if i == 0 and not on_dot:
+                    alpha = 0.0  # editor widget renders center line; painting it too causes ghosting on long lines
+                elif on_dot and i in highlight_offsets:
                     alpha = base_alpha
                 else:
                     alpha = base_alpha * 0.3
@@ -212,14 +218,15 @@ class CircularView(QWidget):
             if is_zero_dot:
                 alpha = max(alpha, base_alpha)
 
+            text_w = fm.horizontalAdvance(text)
+            draw_x = max(margin, margin + (text_area_w - text_w) // 2)
+
             painter.setOpacity(alpha)
             if is_zero_dot:
                 painter.setPen(QColor(255, 40, 40))
-            painter.drawText(0, draw_y, w, text_rect.height(),
-                            Qt.AlignmentFlag.AlignCenter | Qt.TextFlag.TextWordWrap,
-                            text)
+            painter.drawText(draw_x, draw_y + line_ascent, text)
             if is_zero_dot:
-                painter.setPen(self.palette().color(self.foregroundRole()))
+                painter.setPen(Qt.GlobalColor.white)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
