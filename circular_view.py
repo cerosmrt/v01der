@@ -159,6 +159,8 @@ class CircularView(QWidget):
         painter = QPainter(self)
         if not painter.isActive():
             return
+        painter.fillRect(self.rect(), Qt.GlobalColor.black)
+        painter.setPen(Qt.GlobalColor.white)
         painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
         fm = QFontMetrics(self.font())
 
