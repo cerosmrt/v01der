@@ -603,6 +603,39 @@ class FullscreenCircleApp(QMainWindow):
                 return True
             return False
 
+        def split_sentences(text):
+            """Split a single-paragraph text string into a list of sentences."""
+            sentences = []
+            current_start = 0
+            i = 0
+            while i < len(text):
+                ch = text[i]
+                if ch in '.!?':
+                    if ch == '.' and is_exception(text, i):
+                        i += 1
+                        continue
+                    # Consume consecutive punctuation (e.g. ?" or .")
+                    end = i + 1
+                    while end < len(text) and text[end] in '.!?\'"»)':
+                        end += 1
+                    rest = text[end:]
+                    if not rest.strip():
+                        sentences.append(text[current_start:end].strip())
+                        current_start = end
+                        i = end
+                        continue
+                    m = re.match(r'\s+([A-ZÁÉÍÓÚÜÑ"«¿¡(])', rest)
+                    if m:
+                        sentences.append(text[current_start:end].strip())
+                        current_start = end + m.end() - 1
+                        i = current_start
+                        continue
+                i += 1
+            tail = text[current_start:].strip()
+            if tail:
+                sentences.append(tail)
+            return [s for s in sentences if s]
+
         doc_path = self.current_file_path
         try:
             with open(doc_path, 'r', encoding='utf-8') as f:
@@ -611,23 +644,28 @@ class FullscreenCircleApp(QMainWindow):
             print(f"❌ Reformat read error: {e}")
             return
 
-        # If already in Voider format (starts with '.'), only collapse consecutive dots
+        # If already in Voider format (starts with '.'), split sentences + collapse dots
         if raw.strip().startswith('.'):
             lines = [l.rstrip() for l in raw.strip().splitlines()]
-            deduped = []
+            result = []
             prev_dot = False
             for line in lines:
                 is_dot = line == '.' or (line and all(c == '.' for c in line))
                 if is_dot:
                     if not prev_dot:
-                        deduped.append('.')
+                        result.append('.')
                     prev_dot = True
                 else:
-                    deduped.append(line)
+                    text = re.sub(r'\s+', ' ', line.strip())
+                    split = split_sentences(text)
+                    if split:
+                        result.extend(split)
+                    elif text:
+                        result.append(text)
                     prev_dot = False
             try:
                 with open(doc_path, 'w', encoding='utf-8') as f:
-                    for line in deduped:
+                    for line in result:
                         f.write(line + '\n')
             except Exception as e:
                 print(f"❌ Reformat write error: {e}")
@@ -656,42 +694,7 @@ class FullscreenCircleApp(QMainWindow):
             if para_idx > 0:
                 result_lines.append('.')
 
-            # Split text at sentence boundaries
-            sentences = []
-            current_start = 0
-            i = 0
-            while i < len(text):
-                ch = text[i]
-                if ch in '.!?':
-                    if ch == '.' and is_exception(text, i):
-                        i += 1
-                        continue
-                    # Consume consecutive punctuation (e.g. ?" or .")
-                    end = i + 1
-                    while end < len(text) and text[end] in '.!?\'"»)':
-                        end += 1
-                    # Only split if followed by whitespace + uppercase, or end of text
-                    rest = text[end:]
-                    if not rest.strip():
-                        # End of paragraph
-                        sentences.append(text[current_start:end].strip())
-                        current_start = end
-                        i = end
-                        continue
-                    m = re.match(r'\s+([A-ZÁÉÍÓÚÜÑ"«¿¡(])', rest)
-                    if m:
-                        sentences.append(text[current_start:end].strip())
-                        current_start = end + m.end() - 1
-                        i = current_start
-                        continue
-                i += 1
-
-            # Remainder
-            tail = text[current_start:].strip()
-            if tail:
-                sentences.append(tail)
-
-            result_lines.extend(s for s in sentences if s)
+            result_lines.extend(split_sentences(text))
 
         # Ensure leading dot
         if result_lines and result_lines[0] != '.':
